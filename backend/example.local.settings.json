@@ -1,0 +1,11 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "FUNCTIONS_WORKER_RUNTIME": "python",
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "ZOHO_CLIENT_ID": "dev-value",
+    "ZOHO_CLIENT_SECRET": "dev-value",
+    "CLAUDE_API_KEY": "sk-...",
+    "CORS_ALLOW_ORIGINS": "http://localhost:3000"
+  }
+}

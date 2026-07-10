@@ -1,0 +1,4 @@
+azure-functions
+fastapi
+pydantic
+uvicorn[standard]
