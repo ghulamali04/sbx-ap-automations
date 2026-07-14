@@ -12,8 +12,8 @@ multi-portal use should move to a real store (DB / Key Vault) keyed per account.
 import json
 from pathlib import Path
 
-# backend/  ->  three levels up from api/zoho/token_store.py
-_TOKEN_FILE = Path(__file__).resolve().parents[2] / ".zoho_tokens.json"
+# backend/  ->  four levels up from api/automations/zoho/token_store.py
+_TOKEN_FILE = Path(__file__).resolve().parents[3] / ".zoho_tokens.json"
 
 
 def save_tokens(tokens: dict) -> None:

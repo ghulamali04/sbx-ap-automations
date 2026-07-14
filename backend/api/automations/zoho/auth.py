@@ -11,7 +11,8 @@ class ZohoAuth:
         self.accounts_url = (os.getenv("ZOHO_ACCOUNTS_URL") or "").rstrip("/")
 
     def get_authorization_url(
-        self, scope: str = "ZohoProjects.portals.READ,ZohoProjects.projects.READ"
+        self,
+        scope: str = "ZohoProjects.portals.READ,ZohoProjects.projects.READ,ZohoProjects.tasks.READ",
     ) -> str:
         return (
             f"{self.accounts_url}/oauth/v2/auth"
@@ -38,7 +39,31 @@ class ZohoAuth:
         if response.status_code != 200:
             error_detail = response.json() if response.text else "Unknown error"
             raise HTTPException(
-                status_code=400, 
+                status_code=400,
                 detail=f"Zoho token exchange failed: {error_detail}"
+            )
+        return response.json()
+
+    async def refresh_access_token(self, refresh_token: str) -> dict:
+        """Exchange a long-lived refresh token for a fresh access token.
+
+        Zoho does not return a new refresh token here — the existing one keeps
+        working — so callers must preserve it when persisting the result.
+        """
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{self.accounts_url}/oauth/v2/token",
+                data={
+                    "refresh_token": refresh_token,
+                    "client_id": self.client_id,
+                    "client_secret": self.client_secret,
+                    "grant_type": "refresh_token",
+                },
+            )
+        if response.status_code != 200:
+            error_detail = response.json() if response.text else "Unknown error"
+            raise HTTPException(
+                status_code=401,
+                detail=f"Zoho token refresh failed: {error_detail}",
             )
         return response.json()
