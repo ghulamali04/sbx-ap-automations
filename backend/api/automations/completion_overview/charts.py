@@ -41,6 +41,13 @@ class Row:
     count: int
 
 
+@dataclass
+class Panel:
+    """One grouping's section within a combined chart (e.g. 'By partner')."""
+    heading: str
+    rows: list[Row]
+
+
 def _fmt_value(value: float, suffix: str) -> str:
     """Round numbers show as integers (50%), others to one decimal (31.7%)."""
     if abs(value - round(value)) < 0.05:
@@ -48,74 +55,98 @@ def _fmt_value(value: float, suffix: str) -> str:
     return f"{value:.1f}{suffix}"
 
 
-def render_bar_chart(
-    rows: list[Row],
+def _draw_panel(ax, panel: Panel, *, value_suffix: str, value_max: float,
+                count_suffix: str, show_counts: bool) -> None:
+    """Draw one grouping's bars onto a given axes (shared by single & combined)."""
+    rows = sorted(panel.rows, key=lambda r: r.value, reverse=True)
+    n = len(rows)
+    y = list(range(n))[::-1]
+
+    ax.set_facecolor(_PAGE)
+    ax.barh(y, [value_max] * n, color=_TRACK, height=0.62, zorder=1)
+    ax.barh(y, [r.value for r in rows], color=_BLUE, height=0.62, zorder=2)
+
+    gap = value_max * 0.012
+    for yi, r in zip(y, rows):
+        ax.text(r.value + gap, yi, _fmt_value(r.value, value_suffix),
+                va="center", ha="left", fontsize=12, color=_INK, zorder=3)
+        if show_counts:
+            unit = count_suffix if r.count != 1 else count_suffix.rstrip("s")
+            ax.text(value_max * 1.02, yi, f"{r.count} {unit}",
+                    va="center", ha="left", fontsize=10.5, color=_MUTED, zorder=3)
+
+    ax.set_yticks(y)
+    ax.set_yticklabels([r.label for r in rows], fontsize=12, color=_INK)
+    ax.set_xlim(0, value_max)
+    ax.set_ylim(-0.7, max(n - 0.3, 0.7))
+    ax.xaxis.set_major_locator(MultipleLocator(value_max / 4))
+    ax.xaxis.set_major_formatter(lambda v, _pos: f"{v:g}{value_suffix}")
+    ax.tick_params(axis="x", labelsize=11, colors=_MUTED, length=0)
+    ax.tick_params(axis="y", length=0)
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    ax.set_axisbelow(True)
+    ax.grid(axis="x", color="#dcdcdc", linewidth=0.8, zorder=0)
+    ax.set_title(panel.heading, loc="left", fontsize=13, fontweight="bold",
+                 color=_INK, pad=12)
+
+
+def render_combined_chart(
+    panels: list[Panel],
     *,
     title: str,
     subtitle: str = "",
+    footnote: str = "",
     value_suffix: str = "%",
     value_max: float = 100.0,
     count_suffix: str = "tasks",
     show_counts: bool = True,
 ) -> bytes:
-    """Render one grouping's chart for one project and return PNG bytes.
+    """Render every grouping into a single PNG, one stacked panel per grouping.
 
-    rows are sorted by value descending (highest at the top) here, so callers do
-    not have to pre-sort.
+    Panels are sized proportionally to their bar count so bars stay the same
+    height whether a panel has three people or twelve.
     """
-    rows = sorted(rows, key=lambda r: r.value, reverse=True)
-    n = len(rows)
+    panels = [p for p in panels if p.rows]
+    if not panels:
+        panels = [Panel(heading="No data", rows=[])]
 
-    # Height grows with the number of bars; keep a sensible floor for tiny charts.
-    fig_h = max(2.2, 0.62 * n + 1.6)
-    fig, ax = plt.subplots(figsize=(11, fig_h), dpi=150)
+    # Size each panel by its bar count (+ a constant allowance for its heading and
+    # x-axis) so bars stay a consistent height across panels of different sizes.
+    counts = [max(len(p.rows), 1) for p in panels]
+    chrome_rows = 2.0          # heading + axis labels, expressed in "rows"
+    row_in = 0.46              # inches per row
+    # header_in must clear the title, the subtitle, AND the first panel's heading,
+    # which renders above its axes.
+    header_in, footer_in = 1.6, 0.55
+
+    weights = [c + chrome_rows for c in counts]
+    fig_h = sum(weights) * row_in + header_in + footer_in
+
+    fig = plt.figure(figsize=(11, fig_h), dpi=150)
     fig.patch.set_facecolor(_PAGE)
-    ax.set_facecolor(_PAGE)
+    gs = fig.add_gridspec(len(panels), 1, height_ratios=weights)
 
-    y = list(range(n))[::-1]  # first row at the top
+    for i, panel in enumerate(panels):
+        ax = fig.add_subplot(gs[i, 0])
+        _draw_panel(ax, panel, value_suffix=value_suffix, value_max=value_max,
+                    count_suffix=count_suffix, show_counts=show_counts)
 
-    # Light full-range track behind every bar.
-    ax.barh(y, [value_max] * n, color=_TRACK, height=0.62, zorder=1)
-    # Blue value bars.
-    ax.barh(y, [r.value for r in rows], color=_BLUE, height=0.62, zorder=2)
-
-    # Value labels just past the end of each blue bar.
-    label_gap = value_max * 0.012
-    for yi, r in zip(y, rows):
-        ax.text(
-            r.value + label_gap, yi, _fmt_value(r.value, value_suffix),
-            va="center", ha="left", fontsize=12, color=_INK,
-            zorder=3,
-        )
-        if show_counts:
-            unit = count_suffix if r.count != 1 else count_suffix.rstrip("s")
-            ax.text(
-                value_max * 1.02, yi, f"{r.count} {unit}",
-                va="center", ha="left", fontsize=10.5, color=_MUTED, zorder=3,
-            )
-
-    ax.set_yticks(y)
-    ax.set_yticklabels([r.label for r in rows], fontsize=12, color=_INK)
-    ax.set_xlim(0, value_max)
-    ax.xaxis.set_major_locator(MultipleLocator(value_max / 4))
-    ax.xaxis.set_major_formatter(lambda v, _pos: f"{v:g}{value_suffix}")
-    ax.tick_params(axis="x", labelsize=11, colors=_MUTED, length=0)
-    ax.tick_params(axis="y", length=0)
-
-    # Strip the frame; keep only faint vertical gridlines.
-    for spine in ax.spines.values():
-        spine.set_visible(False)
-    ax.set_axisbelow(True)
-    ax.grid(axis="x", color="#dcdcdc", linewidth=0.8, zorder=0)
-    ax.margins(y=0.02)
-
-    # Title + subtitle, left-aligned above the plot.
-    fig.suptitle(title, x=0.02, y=0.99, ha="left", fontsize=17, fontweight="bold", color=_INK)
+    # Header/footer are fixed in inches, so they don't scale with panel count.
+    fig.text(0.02, 1 - 0.34 / fig_h, title, ha="left", va="top",
+             fontsize=18, fontweight="bold", color=_INK)
     if subtitle:
-        ax.set_title(subtitle, loc="left", fontsize=11, color=_MUTED, pad=14)
+        fig.text(0.02, 1 - 0.72 / fig_h, subtitle, ha="left", va="top",
+                 fontsize=11, color=_MUTED)
+    if footnote:
+        fig.text(0.02, 0.16 / fig_h, footnote, ha="left", va="bottom",
+                 fontsize=10, color=_MUTED)
 
-    # Leave room on the right for the task-count column.
-    fig.subplots_adjust(left=0.20, right=0.90, top=0.86, bottom=0.12)
+    fig.subplots_adjust(
+        left=0.20, right=0.90,
+        top=1 - header_in / fig_h, bottom=footer_in / fig_h,
+        hspace=0.9 * chrome_rows * row_in / (sum(weights) * row_in / len(panels)),
+    )
 
     buf = io.BytesIO()
     fig.savefig(buf, format="png", facecolor=_PAGE)

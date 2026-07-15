@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request, Response
 
-from api.automations.completion_overview import service, sharepoint
+from api.automations.completion_overview import power_automate, service
 from api.automations.completion_overview.jobs import create_job, get_job, start_job
 from api.automations.completion_overview.models import (
     JobResult,
@@ -21,19 +21,28 @@ router = APIRouter(prefix="/reports/completion", tags=["completion-overview"])
 
 
 @router.post("", status_code=202, response_model=ReportAccepted)
-async def start_report(req: ReportRequest, request: Request, response: Response):
-    """Queue a report run and return 202 + a Location header to poll."""
-    if not req.project_ids and not req.name_filters:
+async def start_report(req: ReportRequest | None = None, *, request: Request, response: Response):
+    """Queue a report run and return 202 + a Location header to poll.
+
+    An empty body is valid: it selects the latest BAS and IAS projects by default.
+    """
+    req = req or ReportRequest()
+    if not req.projects_include and not req.name_filters:
         raise HTTPException(
             status_code=400,
-            detail="Provide either project_ids or name_filters.",
+            detail="Provide projects_include, or name_filters to resolve by name.",
         )
     # Validate caller-supplied destinations up front (spec §6.7) so bad input fails
     # fast with 400 rather than mid-way through a background job.
-    sharepoint.validate_webhook_url(req.sharepoint_webhook_url)
-    for g in req.groupings:
-        sharepoint.validate_output_folder(g.output_folder)
-
+    webhook = req.resolved_webhook()
+    if webhook:
+        power_automate.validate_webhook_url(webhook)
+    elif not req.dry_run:
+        raise HTTPException(
+            status_code=400,
+            detail="No webhook configured. Set POWER_AUTOMATE_WEBHOOK_URL, pass "
+                   "webhook_url, or send dry_run=true to render without delivering.",
+        )
     job_id = create_job()
     start_job(job_id, lambda: service.run_report(req))
 

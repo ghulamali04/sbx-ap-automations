@@ -3,9 +3,13 @@
   "Values": {
     "FUNCTIONS_WORKER_RUNTIME": "python",
     "AzureWebJobsStorage": "UseDevelopmentStorage=true",
-    "ZOHO_CLIENT_ID": "dev-value",
-    "ZOHO_CLIENT_SECRET": "dev-value",
-    "CLAUDE_API_KEY": "sk-...",
-    "CORS_ALLOW_ORIGINS": "http://localhost:3000"
+    "ZOHO_PORTAL_ID": "",
+    "ZOHO_CLIENT_ID": "",
+    "ZOHO_CLIENT_SECRET": "",
+    "ZOHO_REDIRECT_URI": "",
+    "ZOHO_ACCOUNTS_URL": "",
+    "POWER_AUTOMATE_WEBHOOK_URL": "",
+    "POWER_AUTOMATE_ALLOWED_HOSTS": "",
+    "CORS_ALLOW_ORIGINS": ""
   }
 }

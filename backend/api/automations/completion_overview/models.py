@@ -1,50 +1,69 @@
 """
 Request/response models for the completion-overview report endpoint.
 
-The contract is deliberately generic (spec §6.7): the caller (a Power Automate
-flow) supplies the metric field, the groupings, and where each grouping's charts
-should land. Nothing here is BAS/IAS-specific — a different report reuses the same
-endpoint with a different payload.
+The contract stays generic (spec §6.7) — metric field, groupings and destinations
+can all be overridden per call — but every one of those has a sensible default, so
+the common case is a body as small as:
+
+    {"projects_include": ["123"], "projects_excluded": []}
+
+or even `{}`, which selects the latest BAS and IAS projects automatically.
 """
 from __future__ import annotations
+
+import os
 
 from pydantic import BaseModel, Field
 
 
-class Grouping(BaseModel):
-    """One grouping to chart: a Zoho task field, and where its charts go."""
-    field: str = Field(..., description="Zoho task field to group by, e.g. 'Partner'.")
-    output_folder: str = Field(
-        ..., description="SharePoint folder these charts belong in (passed to the webhook)."
-    )
+def default_group_by() -> list[str]:
+    """Zoho task fields to chart, one stacked panel each, in this order."""
+    raw = os.getenv("COMPLETION_GROUP_BY", "Partner,Accountant")
+    return [f.strip() for f in raw.split(",") if f.strip()]
 
 
 class ReportRequest(BaseModel):
     """Payload from the calling flow.
 
-    Project selection: pass explicit `project_ids`, OR omit them and let the job
-    resolve the latest active project per entry in `name_filters`.
+    Project selection:
+      - `projects_include` given -> use exactly those ids.
+      - otherwise              -> match `name_filters` and take the latest month
+                                  available for each (e.g. the newest BAS and the
+                                  newest IAS).
+    `projects_excluded` is always applied last, so it can drop an id that either
+    path selected.
     """
-    project_ids: list[str] = Field(
-        default_factory=list,
-        description="Explicit Zoho project ids. If empty, resolve by name_filters.",
+    projects_include: list[str] = Field(
+        default_factory=list, description="Explicit Zoho project ids to report on."
+    )
+    projects_excluded: list[str] = Field(
+        default_factory=list, description="Zoho project ids to drop from the selection."
     )
     name_filters: list[str] = Field(
-        default_factory=list,
-        description="Project-name substrings, e.g. ['BAS', 'IAS']. Used when project_ids is empty.",
+        default_factory=lambda: ["BAS", "IAS"],
+        description="Project-name substrings used when projects_include is empty.",
     )
     active_only: bool = Field(
         default=True, description="Only include projects Zoho marks active."
     )
     metric_field: str = Field(
-        ..., description="Zoho task field to average, e.g. 'Completion Percentage'."
+        default="Completion Percentage", description="Zoho task field to average."
     )
-    groupings: list[Grouping] = Field(
-        ..., min_length=1, description="One or more groupings to chart per project."
+    group_by: list[str] = Field(
+        default_factory=default_group_by,
+        description="Zoho task fields to group by — one stacked panel each, in one combined PNG.",
     )
-    sharepoint_webhook_url: str = Field(
-        ..., description="Power Automate HTTP trigger that stores a posted chart in SharePoint."
+    webhook_url: str | None = Field(
+        default=None,
+        description="Power Automate flow to POST each chart to. "
+                    "Falls back to POWER_AUTOMATE_WEBHOOK_URL.",
     )
+    dry_run: bool = Field(
+        default=False, description="Render charts but skip delivery."
+    )
+
+    def resolved_webhook(self) -> str | None:
+        return self.webhook_url or os.getenv("POWER_AUTOMATE_WEBHOOK_URL") or None
 
 
 class ReportAccepted(BaseModel):
@@ -54,16 +73,22 @@ class ReportAccepted(BaseModel):
     status_url: str
 
 
-class ChartResult(BaseModel):
-    project_id: str
-    project_name: str
+class PanelSummary(BaseModel):
+    """Per-grouping detail behind one panel of a combined chart."""
     grouping: str
-    filename: str
-    output_folder: str
     people: int
     tasks_included: int
     tasks_excluded: int
-    delivered: bool
+
+
+class ChartResult(BaseModel):
+    project_id: str
+    project_name: str
+    filename: str
+    panels: list[PanelSummary] = Field(default_factory=list)
+    tasks_total: int = 0
+    bytes_png: int = 0
+    delivered: bool = False
     error: str | None = None
 
 
@@ -72,4 +97,5 @@ class JobResult(BaseModel):
     status: str  # queued | running | completed | failed
     charts: list[ChartResult] = Field(default_factory=list)
     projects_matched: int = 0
+    projects_selected: list[str] = Field(default_factory=list)
     error: str | None = None
