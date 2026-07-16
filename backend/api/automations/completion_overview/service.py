@@ -199,33 +199,31 @@ async def run_report(req: ReportRequest) -> JobResult:
         rendered.append((chart, png))
         result.charts.append(chart)
 
-    # 2. Deliver on completion.
+    # 2. Deliver every chart in ONE call, so the flow triggers once and can send a
+    #    single email covering all projects — one call per project sends one each.
+    ready = [(chart, png) for chart, png in rendered if png is not None]
+    if req.dry_run or not ready:
+        return result
+
     webhook = req.resolved_webhook()
-    for chart, png in rendered:
-        if png is None:
-            continue  # rendering already recorded an error on this chart
-        if req.dry_run:
-            continue
-        if not webhook:
+    if not webhook:
+        for chart, _ in ready:
             chart.error = "No webhook configured — chart rendered but not delivered."
-            continue
-        try:
-            await power_automate.deliver_chart(webhook, filename=chart.filename, png_bytes=png)
+        return result
+
+    try:
+        await power_automate.deliver_charts(
+            webhook,
+            filename=req.resolved_filename(),
+            images=[png for _, png in ready],  # already in report order
+        )
+        for chart, _ in ready:
             chart.delivered = True
-        except Exception as exc:  # noqa: BLE001 — record per-chart failure, keep going
+    except Exception as exc:  # noqa: BLE001 — single call, so the batch fails together
+        for chart, _ in ready:
             chart.error = str(exc)
 
     return result
-
-
-def _excluded_note(tasks: list[dict], req: ReportRequest, missing: list[str]) -> str:
-    """Footnote naming the tasks dropped for having no value in any grouping."""
-    if not missing:
-        return ""
-    shown = ", ".join(missing[:4])
-    more = f" (+{len(missing) - 4} more)" if len(missing) > 4 else ""
-    fields = "/".join(g.lower() for g in req.group_by)
-    return f"{len(missing)} of {len(tasks)} tasks excluded (no {fields} assigned): {shown}{more}."
 
 
 def _render_project_chart(
@@ -247,18 +245,11 @@ def _render_project_chart(
             tasks_included=included, tasks_excluded=excluded,
         ))
 
-    # A task only counts as "excluded" for the footnote if no grouping placed it.
-    missing = [
-        str(t.get("name", "?")) for t in tasks
-        if all(_grouping_value(read_task_field(t, f)) is None for f in req.group_by)
-    ]
-
     try:
         png = render_combined_chart(
             panels,
             title=pname,
             subtitle=f"Average {req.metric_field.lower()} per person · {_today()}",
-            footnote=_excluded_note(tasks, req, missing),
         )
         chart.bytes_png = len(png)
         return chart, png

@@ -12,6 +12,7 @@ or even `{}`, which selects the latest BAS and IAS projects automatically.
 from __future__ import annotations
 
 import os
+from datetime import date
 
 from pydantic import BaseModel, Field
 
@@ -55,8 +56,12 @@ class ReportRequest(BaseModel):
     )
     webhook_url: str | None = Field(
         default=None,
-        description="Power Automate flow to POST each chart to. "
+        description="Power Automate flow to POST the charts to. "
                     "Falls back to POWER_AUTOMATE_WEBHOOK_URL.",
+    )
+    filename: str | None = Field(
+        default=None,
+        description="Label for the batch sent to the flow. Defaults to 'report-<today>'.",
     )
     dry_run: bool = Field(
         default=False, description="Render charts but skip delivery."
@@ -64,6 +69,9 @@ class ReportRequest(BaseModel):
 
     def resolved_webhook(self) -> str | None:
         return self.webhook_url or os.getenv("POWER_AUTOMATE_WEBHOOK_URL") or None
+
+    def resolved_filename(self) -> str:
+        return self.filename or f"report-{date.today().isoformat()}"
 
 
 class ReportAccepted(BaseModel):

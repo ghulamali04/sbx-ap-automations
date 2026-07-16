@@ -96,7 +96,6 @@ def render_combined_chart(
     *,
     title: str,
     subtitle: str = "",
-    footnote: str = "",
     value_suffix: str = "%",
     value_max: float = 100.0,
     count_suffix: str = "tasks",
@@ -118,7 +117,7 @@ def render_combined_chart(
     row_in = 0.46              # inches per row
     # header_in must clear the title, the subtitle, AND the first panel's heading,
     # which renders above its axes.
-    header_in, footer_in = 1.6, 0.55
+    header_in, footer_in = 1.6, 0.35
 
     weights = [c + chrome_rows for c in counts]
     fig_h = sum(weights) * row_in + header_in + footer_in
@@ -138,9 +137,6 @@ def render_combined_chart(
     if subtitle:
         fig.text(0.02, 1 - 0.72 / fig_h, subtitle, ha="left", va="top",
                  fontsize=11, color=_MUTED)
-    if footnote:
-        fig.text(0.02, 0.16 / fig_h, footnote, ha="left", va="bottom",
-                 fontsize=10, color=_MUTED)
 
     fig.subplots_adjust(
         left=0.20, right=0.90,

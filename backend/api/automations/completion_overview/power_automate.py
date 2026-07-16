@@ -45,16 +45,27 @@ def validate_webhook_url(url: str) -> None:
         )
 
 
-async def deliver_chart(
-    webhook_url: str, *, filename: str, png_bytes: bytes, content_type: str = "image/png"
+async def deliver_charts(
+    webhook_url: str,
+    *,
+    filename: str,
+    images: list[bytes],
+    content_type: str = "image/png",
 ) -> None:
-    """POST one chart to the Power Automate flow. Raises on non-2xx."""
+    """POST every chart to the flow in ONE call. Raises on non-2xx.
+
+    All images go in a single request so the flow triggers once and can build one
+    email containing them all — one call per project would send one email each.
+
+    `images` order is meaningful: it is the order the charts should appear in
+    (BAS before IAS, chronological within each), so the flow can rely on it.
+    """
     payload = {
         "filename": filename,
         "content_type": content_type,
-        "image_b64": [base64.b64encode(png_bytes).decode("ascii")],
+        "image_b64": [base64.b64encode(png).decode("ascii") for png in images],
     }
-    async with httpx.AsyncClient(timeout=120) as client:
+    async with httpx.AsyncClient(timeout=180) as client:
         resp = await client.post(webhook_url, json=payload)
     if resp.status_code >= 300:
         raise RuntimeError(
