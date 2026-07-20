@@ -1,71 +1,113 @@
-name: deploy-functions
-
-# Build once, then deploy to sandbox automatically and promote the SAME package to
-# production behind a manual approval gate (GitHub Environment "production").
+# .github/workflows/deploy-functions.yml
 #
-# Hosting is Azure Functions Flex Consumption (see ARCHITECTURE.md §1). Flex ALWAYS
-# runs its own remote Oryx build of the Python source on deploy, so we ship the raw
-# source zip and must NOT set enable-oryx-build / scm-do-build-during-deployment and
-# must NOT pre-vendor packages into .python_packages.
+# Continuous deployment for the backend Function App (Flex Consumption).
+# Branch-per-environment:
+#   push to staging  -> deploy to SANDBOX
+#   push to main     -> deploy to PRODUCTION
+# Promotion is done by merging staging into main.
+#
+# Monorepo note: everything runs from ./backend and the package is zipped
+# from INSIDE backend so host.json / function_app.py sit at the ZIP ROOT.
+
+name: deploy-functions
 
 on:
   push:
-    branches: [main]
-    paths: ['backend/**', 'contracts/**']
+    branches: [staging, main]
+    paths:
+      - 'backend/**'
+      - 'contracts/**'
+      - '.github/workflows/deploy-functions.yml'
   workflow_dispatch:
 
 permissions:
   id-token: write        # required for OIDC azure/login
   contents: read
 
+env:
+  PYTHON_VERSION: '3.11'
+
 jobs:
+  # 1) Build the package. Runs for whichever branch triggered the workflow.
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Package backend source (Flex does the pip/Oryx build on deploy)
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies into the package
+        working-directory: backend
         run: |
-          cd backend
+          python -m pip install --upgrade pip
+          # On Flex the Python worker loads deps from this exact path.
+          pip install -r requirements.txt \
+            --target=".python_packages/lib/site-packages"
+
+      - name: Zip package (contents of backend at the zip root)
+        working-directory: backend
+        run: |
           zip -r ../functionapp.zip . \
-            -x '*.venv*' '*__pycache__*' '*.pyc' \
-               'local.settings.json' '.zoho_tokens.json'
+            -x "*.venv*" \
+            -x "local.settings.json" \
+            -x "tests/*" \
+            -x "**/__pycache__/*" \
+            -x "*.pyc"
+
       - uses: actions/upload-artifact@v4
         with:
           name: functionapp
-          path: functionapp.zip   # built ONCE, reused by both deploy jobs
+          path: functionapp.zip
+          retention-days: 5
 
+  # 2) staging branch -> sandbox
   deploy-sandbox:
     needs: build
+    if: github.ref == 'refs/heads/staging'
     runs-on: ubuntu-latest
-    environment: sandbox          # no protection rules — deploys automatically
+    environment: sandbox            # pulls the sandbox environment's secrets
     steps:
       - uses: actions/download-artifact@v4
-        with: { name: functionapp }
+        with:
+          name: functionapp
+
       - uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-      - uses: Azure/functions-action@v1
+
+      - name: Deploy to sandbox
+        uses: Azure/functions-action@v1
         with:
           app-name: func-ap-automations-sbx
           package: functionapp.zip
-          # Flex Consumption: leave remote build to the platform. Do not add
-          # scm-do-build-during-deployment or enable-oryx-build here.
+          sku: flexconsumption
+          remote-build: false        # deps already bundled; no server build
 
+  # 3) main branch -> production
   deploy-production:
-    needs: deploy-sandbox         # promote only after sandbox succeeds
+    needs: build
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    environment: production       # ← required-reviewer gate = the sign-off
+    environment: production          # optional required-reviewer = deploy-time sign-off
     steps:
       - uses: actions/download-artifact@v4
-        with: { name: functionapp }   # SAME artifact, not a rebuild
+        with:
+          name: functionapp
+
       - uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-      - uses: Azure/functions-action@v1
+
+      - name: Deploy to production
+        uses: Azure/functions-action@v1
         with:
           app-name: func-ap-automations-prod
           package: functionapp.zip
+          sku: flexconsumption
+          remote-build: false
