@@ -82,7 +82,7 @@ jobs:
       - name: Deploy to sandbox
         uses: Azure/functions-action@v1
         with:
-          app-name: func-ap-automations-sbx
+          app-name: advisory-partners-automations-sbx
           package: functionapp.zip
           sku: flexconsumption
           remote-build: false        # deps already bundled; no server build
@@ -107,7 +107,7 @@ jobs:
       - name: Deploy to production
         uses: Azure/functions-action@v1
         with:
-          app-name: func-ap-automations-prod
+          app-name: advisory-partners-automations-prod
           package: functionapp.zip
           sku: flexconsumption
           remote-build: false
