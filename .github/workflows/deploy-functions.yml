@@ -1,0 +1,71 @@
+name: deploy-functions
+
+# Build once, then deploy to sandbox automatically and promote the SAME package to
+# production behind a manual approval gate (GitHub Environment "production").
+#
+# Hosting is Azure Functions Flex Consumption (see ARCHITECTURE.md §1). Flex ALWAYS
+# runs its own remote Oryx build of the Python source on deploy, so we ship the raw
+# source zip and must NOT set enable-oryx-build / scm-do-build-during-deployment and
+# must NOT pre-vendor packages into .python_packages.
+
+on:
+  push:
+    branches: [main]
+    paths: ['backend/**', 'contracts/**']
+  workflow_dispatch:
+
+permissions:
+  id-token: write        # required for OIDC azure/login
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Package backend source (Flex does the pip/Oryx build on deploy)
+        run: |
+          cd backend
+          zip -r ../functionapp.zip . \
+            -x '*.venv*' '*__pycache__*' '*.pyc' \
+               'local.settings.json' '.zoho_tokens.json'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: functionapp
+          path: functionapp.zip   # built ONCE, reused by both deploy jobs
+
+  deploy-sandbox:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: sandbox          # no protection rules — deploys automatically
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: functionapp }
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - uses: Azure/functions-action@v1
+        with:
+          app-name: func-ap-automations-sbx
+          package: functionapp.zip
+          # Flex Consumption: leave remote build to the platform. Do not add
+          # scm-do-build-during-deployment or enable-oryx-build here.
+
+  deploy-production:
+    needs: deploy-sandbox         # promote only after sandbox succeeds
+    runs-on: ubuntu-latest
+    environment: production       # ← required-reviewer gate = the sign-off
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: functionapp }   # SAME artifact, not a rebuild
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - uses: Azure/functions-action@v1
+        with:
+          app-name: func-ap-automations-prod
+          package: functionapp.zip
