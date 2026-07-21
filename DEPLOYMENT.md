@@ -19,6 +19,8 @@ Sections 1–4 are the design. **Section 5 is the runbook** — the scripts, set
 
 The branch a change lands on decides where it deploys. `staging` drives the sandbox environment, `main` drives production, and promotion is a reviewed merge from `staging` into `main`.
 
+**Nobody pushes to `staging` or `main` directly — everything arrives by pull request.** That needs no special deploy trigger: merging a PR *is* a push to the target branch, and that push is what deploys. The PR itself runs the same build as a gate, so a package that cannot build never reaches the merge button (section 4.2).
+
 Two rules govern everything below:
 
 1. **Test on staging against sandbox first.** Nothing reaches production without having run in sandbox off the `staging` branch.
@@ -149,6 +151,22 @@ GitHub secrets are available to the **workflow**, not to the running app. There 
 
 Path-filtered to backend changes, zipping from **inside** `backend` so `host.json` and `function_app.py` sit at the zip root (the classic monorepo mistake is zipping the folder itself, which buries the host one level too deep and deploys an empty app).
 
+**Triggers, matching the PR-only workflow:**
+
+| Event | `build` | `deploy-sandbox` | `deploy-production` |
+|---|---|---|---|
+| PR → `staging` or `main` | ✅ validation gate | ❌ | ❌ |
+| push to `staging` (a merged PR) | ✅ | ✅ | ❌ |
+| push to `main` (a merged PR) | ✅ | ❌ | ✅ |
+| `workflow_dispatch` | ✅ | on `staging` | on `main` |
+
+Both deploy jobs are guarded with `github.event_name != 'pull_request'`, so a PR can never deploy — it only proves the build. The artifact that deploys is produced by the exact steps that passed on the PR.
+
+The `build` job runs two checks that turn post-deploy mysteries into pre-merge failures:
+
+- **`Verify the function app indexes`** imports `function_app.py` and asserts `get_functions()` is non-empty. An import error or an unindexable trigger otherwise surfaces only as a dead host after deploy.
+- **`Verify host.json is at the zip root`** asserts `host.json` and `function_app.py` are at the root of the package.
+
 ```yaml
 env:
   PYTHON_VERSION: '3.14'   # MUST match the Function App's runtime — see below
@@ -162,9 +180,11 @@ Two Flex-specific parameters carry the weight: `sku: flexconsumption` selects th
 >   --query "functionAppConfig.runtime"
 > ```
 
-### 4.3 `lint-test.yml` (PR gate)
+### 4.3 `lint-test.yml` (PR gate) — **not yet implemented**
 
-Runs `ruff` plus `pytest` on every PR into `staging` or `main`, and fails if `contracts/openapi.json` is stale. Keep its `python-version` aligned with section 4.2.
+Planned: `ruff` plus `pytest` on every PR into `staging` or `main`, failing if `contracts/openapi.json` is stale. It does not exist yet, and two prerequisites are missing — there is no `backend/tests/` directory and no ruff configuration, so the workflow as originally drafted would fail on every PR.
+
+Until it lands, the PR gate is the `build` job in section 4.2, which catches dependency and import failures but **not** lint or test regressions. Keep any future `python-version` aligned with section 4.2.
 
 ### 4.4 `deploy-web.yml` (frontend, later)
 
