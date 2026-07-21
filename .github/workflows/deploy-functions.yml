@@ -1,71 +1,160 @@
+# .github/workflows/deploy-functions.yml
+#
+# Continuous deployment for the backend Function App (Flex Consumption).
+#
+# Branch-per-environment, PR-driven:
+#   pull_request -> staging|main : BUILD ONLY (validation gate, no deploy)
+#   push         -> staging      : build + deploy to SANDBOX
+#   push         -> main         : build + deploy to PRODUCTION
+#
+# Nobody pushes to staging/main directly; a merged PR *is* a push to the target
+# branch, which is what triggers the deploy. The pull_request run proves the same
+# build succeeds before the merge button is available.
+#
+# Monorepo note: everything runs from ./backend and the package is zipped
+# from INSIDE backend so host.json / function_app.py sit at the ZIP ROOT.
+
 name: deploy-functions
 
-# Build once, then deploy to sandbox automatically and promote the SAME package to
-# production behind a manual approval gate (GitHub Environment "production").
-#
-# Hosting is Azure Functions Flex Consumption (see ARCHITECTURE.md §1). Flex ALWAYS
-# runs its own remote Oryx build of the Python source on deploy, so we ship the raw
-# source zip and must NOT set enable-oryx-build / scm-do-build-during-deployment and
-# must NOT pre-vendor packages into .python_packages.
-
 on:
+  pull_request:
+    branches: [staging, main]
+    paths:
+      - 'backend/**'
+      - 'contracts/**'
+      - '.github/workflows/deploy-functions.yml'
   push:
-    branches: [main]
-    paths: ['backend/**', 'contracts/**']
+    branches: [staging, main]
+    paths:
+      - 'backend/**'
+      - 'contracts/**'
+      - '.github/workflows/deploy-functions.yml'
   workflow_dispatch:
 
 permissions:
   id-token: write        # required for OIDC azure/login
   contents: read
 
+concurrency:
+  # One run per branch/PR; a new push supersedes an in-flight build. Deploys are
+  # never cancelled mid-flight, only queued builds are.
+  group: deploy-functions-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  PYTHON_VERSION: '3.14'
+
 jobs:
+  # 1) Build + validate. Runs for PRs (as the gate) and for pushes (as the deploy
+  #    input), so the artifact that deploys is produced by the exact same steps
+  #    that passed review.
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Package backend source (Flex does the pip/Oryx build on deploy)
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies into the package
+        working-directory: backend
         run: |
-          cd backend
+          python -m pip install --upgrade pip
+          # On Flex the Python worker loads deps from this exact path.
+          pip install -r requirements.txt \
+            --target=".python_packages/lib/site-packages"
+
+      - name: Verify the function app indexes
+        working-directory: backend
+        # Catches the failure mode that otherwise only shows up as a dead host
+        # after deploy: an import error, or a trigger the host cannot index.
+        # Deps live under --target, so they must be put on the path explicitly.
+        env:
+          PYTHONPATH: .python_packages/lib/site-packages
+        run: |
+          python - <<'PY'
+          import function_app
+          functions = function_app.app.get_functions()
+          assert functions, "no functions indexed — the host would deploy empty"
+          for f in functions:
+              print(f"indexed: {f.get_function_name()}")
+          PY
+
+      - name: Zip package (contents of backend at the zip root)
+        working-directory: backend
+        run: |
           zip -r ../functionapp.zip . \
-            -x '*.venv*' '*__pycache__*' '*.pyc' \
-               'local.settings.json' '.zoho_tokens.json'
-      - uses: actions/upload-artifact@v4
+            -x "*.venv*" \
+            -x "local.settings.json" \
+            -x "tests/*" \
+            -x "**/__pycache__/*" \
+            -x "*.pyc"
+
+      - name: Verify host.json is at the zip root
+        # The classic monorepo mistake is zipping the folder itself, which buries
+        # the host one level too deep and silently deploys an empty app.
+        run: |
+          unzip -l functionapp.zip | awk '{print $4}' | grep -qx 'host.json' \
+            || (echo "host.json is not at the zip root" && exit 1)
+          unzip -l functionapp.zip | awk '{print $4}' | grep -qx 'function_app.py' \
+            || (echo "function_app.py is not at the zip root" && exit 1)
+
+      - name: Upload package
+        # PRs validate only — no artifact is needed because nothing deploys.
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
         with:
           name: functionapp
-          path: functionapp.zip   # built ONCE, reused by both deploy jobs
+          path: functionapp.zip
+          retention-days: 5
 
+  # 2) staging -> sandbox. Fires when a PR is merged into staging.
   deploy-sandbox:
     needs: build
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/staging'
     runs-on: ubuntu-latest
-    environment: sandbox          # no protection rules — deploys automatically
+    environment: sandbox            # pulls the sandbox environment's secrets
     steps:
       - uses: actions/download-artifact@v4
-        with: { name: functionapp }
-      - uses: azure/login@v2
         with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-      - uses: Azure/functions-action@v1
-        with:
-          app-name: func-ap-automations-sbx
-          package: functionapp.zip
-          # Flex Consumption: leave remote build to the platform. Do not add
-          # scm-do-build-during-deployment or enable-oryx-build here.
+          name: functionapp
 
-  deploy-production:
-    needs: deploy-sandbox         # promote only after sandbox succeeds
-    runs-on: ubuntu-latest
-    environment: production       # ← required-reviewer gate = the sign-off
-    steps:
-      - uses: actions/download-artifact@v4
-        with: { name: functionapp }   # SAME artifact, not a rebuild
       - uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-      - uses: Azure/functions-action@v1
+
+      - name: Deploy to sandbox
+        uses: Azure/functions-action@v1
         with:
-          app-name: func-ap-automations-prod
+          app-name: advisory-partners-automations-sbx
           package: functionapp.zip
+          sku: flexconsumption
+          remote-build: false        # deps already bundled; no server build
+
+  # 3) main -> production. Fires when a PR is merged into main.
+  deploy-production:
+    needs: build
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production          # optional required-reviewer = deploy-time sign-off
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: functionapp
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy to production
+        uses: Azure/functions-action@v1
+        with:
+          app-name: advisory-partners-automations-prod
+          package: functionapp.zip
+          sku: flexconsumption
+          remote-build: false

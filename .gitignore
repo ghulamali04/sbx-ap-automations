@@ -1,0 +1,3 @@
+# Local, filled-in env files for the Azure config scripts (hold secrets).
+scripts/*.env
+!scripts/*.env.example
