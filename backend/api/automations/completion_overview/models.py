@@ -5,9 +5,11 @@ The contract stays generic (spec §6.7) — metric field, groupings and destinat
 can all be overridden per call — but every one of those has a sensible default, so
 the common case is a body as small as:
 
-    {"projects_include": ["123"], "projects_excluded": []}
+    {"projects_include_IDs": ["123"]}
 
-or even `{}`, which selects the latest BAS and IAS projects automatically.
+or a keyword-driven selection:
+
+    {"projects_include_Names": ["BAS"], "projects_exclude_Names": ["Overdue"]}
 """
 from __future__ import annotations
 
@@ -26,23 +28,38 @@ def default_group_by() -> list[str]:
 class ReportRequest(BaseModel):
     """Payload from the calling flow.
 
-    Project selection:
-      - `projects_include` given -> use exactly those ids.
-      - otherwise              -> match `name_filters` and take the latest month
-                                  available for each (e.g. the newest BAS and the
-                                  newest IAS).
-    `projects_excluded` is always applied last, so it can drop an id that either
-    path selected.
+    Project selection runs as include-then-exclude, and ids always win over names:
+      - `projects_include_IDs` non-empty -> use exactly those ids, and
+        `projects_include_Names` is ignored entirely.
+      - otherwise `projects_include_Names` -> every project whose name contains any
+        of the keywords (case-insensitive substring match).
+      - neither -> every project.
+    Then:
+      - `projects_exclude_IDs` non-empty -> drop those ids, and
+        `projects_exclude_Names` is ignored entirely.
+      - otherwise `projects_exclude_Names` -> drop every project whose name contains
+        any of the keywords.
+
+    At least one of `projects_include_IDs`, `projects_include_Names` or
+    `projects_exclude_Names` must be non-empty; see `validate_selection`.
     """
-    projects_include: list[str] = Field(
+    projects_include_IDs: list[str] = Field(
         default_factory=list, description="Explicit Zoho project ids to report on."
     )
-    projects_excluded: list[str] = Field(
+    projects_exclude_IDs: list[str] = Field(
         default_factory=list, description="Zoho project ids to drop from the selection."
     )
-    name_filters: list[str] = Field(
-        default_factory=lambda: ["BAS", "IAS"],
-        description="Project-name substrings used when projects_include is empty.",
+    projects_include_Names: list[str] = Field(
+        default_factory=list,
+        description="Project-name keywords (e.g. 'BAS', 'July'). Every project whose "
+                    "name contains one of these is included. Ignored when "
+                    "projects_include_IDs is non-empty.",
+    )
+    projects_exclude_Names: list[str] = Field(
+        default_factory=list,
+        description="Project-name keywords (e.g. 'Overdue'). Every project whose name "
+                    "contains one of these is dropped. Ignored when "
+                    "projects_exclude_IDs is non-empty.",
     )
     active_only: bool = Field(
         default=True, description="Only include projects Zoho marks active."
@@ -66,6 +83,26 @@ class ReportRequest(BaseModel):
     dry_run: bool = Field(
         default=False, description="Render charts but skip delivery."
     )
+
+    def validate_selection(self) -> str | None:
+        """Return an error message when the body cannot select anything to report on.
+
+        A run needs something that narrows the full project list: ids to include,
+        name keywords to include, or name keywords to exclude. `projects_exclude_IDs`
+        alone does not count — dropping a handful of ids from every project in the
+        portal is a report nobody asks for on purpose.
+        """
+        if (
+            self.projects_include_IDs
+            or self.projects_include_Names
+            or self.projects_exclude_Names
+        ):
+            return None
+        return (
+            "Provide projects_include_IDs (explicit project ids), "
+            "projects_include_Names (name keywords to include), or "
+            "projects_exclude_Names (name keywords to exclude) to generate a report."
+        )
 
     def resolved_webhook(self) -> str | None:
         return self.webhook_url or os.getenv("POWER_AUTOMATE_WEBHOOK_URL") or None

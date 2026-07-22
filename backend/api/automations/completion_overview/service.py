@@ -28,10 +28,6 @@ _TOP_LEVEL_ALIASES = {
     "completion percentage": "percent_complete",
 }
 
-_MONTHS = {m: i for i, m in enumerate(
-    ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"], start=1
-)}
-
 
 # ---------- field access ----------
 
@@ -93,60 +89,44 @@ def _report_type(name: str) -> tuple[int, str]:
     return 2, "OTHER"
 
 
-def _month_year(name: str, project: dict) -> tuple[int, int]:
-    """Best-effort (year, month) for ordering + filenames, e.g. 'Jun 26' -> (2026, 6)."""
-    m = re.search(r"\b([A-Za-z]{3})[a-z]*\s+(\d{2})\b", name)
-    if m and m.group(1).lower() in _MONTHS:
-        return 2000 + int(m.group(2)), _MONTHS[m.group(1).lower()]
-    created = project.get("created_date_long") or project.get("created_time_long")
-    if created:
-        import datetime as _dt
-        dt = _dt.datetime.utcfromtimestamp(int(created) / 1000)
-        return dt.year, dt.month
-    return 9999, 12
-
-
 def _order_key(project: dict) -> tuple:
+    """BAS first, then IAS, then everything else — alphabetical within each group."""
     name = project.get("name", "")
     type_rank, _ = _report_type(name)
-    year, month = _month_year(name, project)
-    return (type_rank, year, month, name)
+    return (type_rank, name.lower())
+
+
+def _name_matches(project: dict, keywords: list[str]) -> bool:
+    """True when the project name contains any keyword (case-insensitive substring)."""
+    name = (project.get("name") or "").lower()
+    return any(kw.lower() in name for kw in keywords if kw.strip())
 
 
 async def resolve_projects(req: ReportRequest) -> list[dict]:
-    """Explicit ids win; otherwise take the latest month available per name filter.
+    """Include, then exclude — with ids taking priority over names on both sides.
 
-    `projects_excluded` is applied last so it can drop an id from either path.
+    Ids win: a non-empty `projects_include_IDs` makes `projects_include_Names`
+    irrelevant, and likewise for the exclude pair. When neither include list is
+    given, the starting set is every project, which only the exclude keywords then
+    narrow (the route rejects a body that provides no selection at all).
     """
     all_projects = await client.list_projects()
     by_id = {str(p.get("id")): p for p in all_projects}
 
-    if req.projects_include:
-        selected = [by_id[pid] for pid in (str(x) for x in req.projects_include) if pid in by_id]
+    if req.projects_include_IDs:
+        selected = [by_id[pid] for pid in (str(x) for x in req.projects_include_IDs) if pid in by_id]
+    elif req.projects_include_Names:
+        selected = [p for p in all_projects if _name_matches(p, req.projects_include_Names)]
     else:
-        selected = []
-        seen: set[str] = set()
-        for term in req.name_filters:
-            matches = [
-                p for p in all_projects
-                if term.lower() in (p.get("name", "").lower()) and _is_active(p, req.active_only)
-            ]
-            if not matches:
-                continue
-            # Latest available month for this filter (e.g. the newest BAS project),
-            # rather than a strict current-calendar-month match, so a month whose
-            # project has not been created yet does not silently yield nothing.
-            latest = max(matches, key=lambda p: _month_year(p.get("name", ""), p))
-            pid = str(latest.get("id"))
-            if pid not in seen:
-                seen.add(pid)
-                selected.append(latest)
+        selected = list(all_projects)
 
-    excluded = {str(x) for x in req.projects_excluded}
-    selected = [
-        p for p in selected
-        if str(p.get("id")) not in excluded and _is_active(p, req.active_only)
-    ]
+    if req.projects_exclude_IDs:
+        excluded_ids = {str(x) for x in req.projects_exclude_IDs}
+        selected = [p for p in selected if str(p.get("id")) not in excluded_ids]
+    elif req.projects_exclude_Names:
+        selected = [p for p in selected if not _name_matches(p, req.projects_exclude_Names)]
+
+    selected = [p for p in selected if _is_active(p, req.active_only)]
     selected.sort(key=_order_key)
     return selected
 
@@ -172,10 +152,10 @@ def aggregate(tasks: list[dict], metric_field: str, grouping_field: str) -> tupl
 # ---------- orchestration ----------
 
 def _filename(index: int, project: dict) -> str:
+    """`01-bas-july-26.png` — the index keeps names unique and in report order."""
     name = project.get("name", "")
-    _, type_code = _report_type(name)
-    year, month = _month_year(name, project)
-    return f"{index:02d}-{type_code}-{year:04d}-{month:02d}.png"
+    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or str(project.get("id"))
+    return f"{index:02d}-{slug}.png"
 
 
 async def run_report(req: ReportRequest) -> JobResult:

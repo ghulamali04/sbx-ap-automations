@@ -259,7 +259,9 @@ az functionapp function show -g rg-ap-automations-sbx -n advisory-partners-autom
 
 # background job round trip: expect 202 + a Location header, then poll it
 curl -s -X POST https://<host>/reports/completion \
-  -H 'content-type: application/json' -d '{"dry_run": true}' -i | head -20
+  -H 'content-type: application/json' \
+  -d '{"projects_include_Names": ["BAS"], "projects_exclude_Names": ["Overdue"], "dry_run": true}' \
+  -i | head -20
 
 # role assignments
 az role assignment list --assignee <principalId> -o table

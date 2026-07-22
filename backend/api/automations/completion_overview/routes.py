@@ -24,14 +24,12 @@ router = APIRouter(prefix="/reports/completion", tags=["completion-overview"])
 async def start_report(req: ReportRequest | None = None, *, request: Request, response: Response):
     """Queue a report run and return 202 + a Location header to poll.
 
-    An empty body is valid: it selects the latest BAS and IAS projects by default.
+    The body must narrow the project selection — see `ReportRequest.validate_selection`.
     """
     req = req or ReportRequest()
-    if not req.projects_include and not req.name_filters:
-        raise HTTPException(
-            status_code=400,
-            detail="Provide projects_include, or name_filters to resolve by name.",
-        )
+    selection_error = req.validate_selection()
+    if selection_error:
+        raise HTTPException(status_code=400, detail=selection_error)
     # Validate caller-supplied destinations up front (spec §6.7) so bad input fails
     # fast with 400 rather than mid-way through a background job.
     webhook = req.resolved_webhook()
