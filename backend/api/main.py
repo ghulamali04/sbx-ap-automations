@@ -25,6 +25,7 @@ from pydantic import BaseModel
 
 from api.automations.zoho.routes import router as zoho_router
 from api.automations.completion_overview.routes import router as completion_router
+from api.automations.task_summary_report.routes import router as task_summary_router
 
 app = FastAPI(
     title="Advisory Partners Automations API",
@@ -67,3 +68,4 @@ async def echo(body: EchoIn):
 # ---------- Automations ----------
 app.include_router(zoho_router)
 app.include_router(completion_router)
+app.include_router(task_summary_router)
