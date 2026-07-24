@@ -81,7 +81,7 @@ async def run_job(job_id: str, req: ReportRequest) -> None:
     """
     jobs.set_status(job_id, "running")
     try:
-        result = await service.run_report(req)
+        result = await service.run_report(req, job_id=job_id)
         result.job_id = job_id
         result.status = "completed"
         jobs.save_job(result)

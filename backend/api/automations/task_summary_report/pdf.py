@@ -169,6 +169,9 @@ def _summary_row(data: ReportData, page_width: float) -> Table:
     return outer
 
 
+# Third value is a relative weight, not a point width: the table is scaled to fill
+# the page, so dropping or adding a column reflows the rest instead of leaving a
+# gap at the right margin.
 _TASK_COLUMNS = [
     ("Project Name", "project_name", 95),
     ("Task Name", "task_name", 118),
@@ -183,14 +186,13 @@ _TASK_COLUMNS = [
     ("Provider", "provider", 58),
     ("Maturity instruction", "maturity_instruction", 66),
     ("TD - ROA Reason", "td_roa_reason", 78),
-    ("Latest comment", "latest_comment", 0),  # 0 -> takes remaining width
 ]
 
 
 def _task_register_table(rows: list[TaskRow], page_width: float) -> Table:
-    fixed = sum(w for _, _, w in _TASK_COLUMNS if w)
-    remainder = max(page_width - fixed, 120)
-    widths = [w if w else remainder for _, _, w in _TASK_COLUMNS]
+    total_weight = sum(w for _, _, w in _TASK_COLUMNS)
+    scale = page_width / total_weight
+    widths = [w * scale for _, _, w in _TASK_COLUMNS]
 
     header = [_p(label, _HEAD) for label, _, _ in _TASK_COLUMNS]
     body = [header]
@@ -210,7 +212,7 @@ def _task_register_table(rows: list[TaskRow], page_width: float) -> Table:
             row.project_name, row.task_name, row.project_group, row.custom_status,
             row.owner, row.head_client_name, row.preparer, row.cash_account,
             _fmt_money(row.td_value), row.td_term, row.provider,
-            row.maturity_instruction, row.td_roa_reason, row.latest_comment,
+            row.maturity_instruction, row.td_roa_reason,
         ]
         cells = []
         for c_index, value in enumerate(values):

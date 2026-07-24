@@ -3,6 +3,7 @@ azure-identity
 azure-keyvault-secrets
 azure-data-tables
 azure-storage-queue
+azure-storage-blob
 fastapi
 pydantic
 uvicorn[standard]

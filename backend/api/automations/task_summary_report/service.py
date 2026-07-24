@@ -14,7 +14,7 @@ from datetime import date
 
 from api.automations.zoho import client
 from api.automations.completion_overview.service import read_task_field
-from api.automations.task_summary_report import power_automate
+from api.automations.task_summary_report import artifacts, power_automate
 from api.automations.task_summary_report.models import JobResult, ReportRequest, field_map
 from api.automations.task_summary_report.pdf import ReportData, TaskRow, render_task_summary_pdf
 
@@ -203,10 +203,19 @@ def _today_display() -> str:
 
 # ---------- orchestration ----------
 
-async def run_report(req: ReportRequest) -> JobResult:
-    """Resolve tasks, render the PDF, and deliver it. Result is recorded either way."""
+async def run_report(req: ReportRequest, job_id: str = "") -> JobResult:
+    """Resolve tasks, render the PDF, and deliver it. Result is recorded either way.
+
+    `job_id` is what the rendered PDF is filed under so the status route can link
+    to it; pass it whenever the caller wants the PDF viewable afterwards.
+    """
     fields = field_map()
-    result = JobResult(job_id="", status="running", head_client_id=req.head_client_id)
+    result = JobResult(
+        job_id=job_id,
+        status="running",
+        head_client_id=req.head_client_id,
+        filename=req.resolved_filename(),
+    )
 
     matched, projects_scanned = await resolve_matching_tasks(req, fields)
     result.projects_scanned = projects_scanned
@@ -244,6 +253,14 @@ async def run_report(req: ReportRequest) -> JobResult:
         result.error = f"PDF render failed: {exc}"
         return result
     result.bytes_pdf = len(pdf_bytes)
+
+    # Store before delivering: a delivery failure should still leave the report
+    # readable, and a dry run is precisely the case where viewing it is the point.
+    if job_id:
+        try:
+            artifacts.save_pdf(job_id, pdf_bytes)
+        except Exception as exc:  # noqa: BLE001 — a report we can't file is still a report
+            result.error = f"PDF rendered but not stored for viewing: {exc}"
 
     if req.dry_run:
         return result

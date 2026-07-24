@@ -86,3 +86,8 @@ class JobResult(BaseModel):
     bytes_pdf: int = 0
     delivered: bool = False
     error: str | None = None
+    filename: str = ""
+    # Absolute link to the rendered PDF, filled in by the status route (not stored)
+    # so it always reflects the host the caller actually reached. None until the
+    # PDF exists — a failed or still-running job has nothing to show.
+    pdf_url: str | None = None
