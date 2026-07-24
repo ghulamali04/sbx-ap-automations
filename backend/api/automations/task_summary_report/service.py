@@ -1,22 +1,29 @@
-"""
-Task Summary report orchestration: scan Zoho projects for one head client's
-tasks -> aggregate -> render PDF -> deliver to the Power Automate flow.
 
-Field lookup reuses read_task_field from completion_overview.service (a pure,
-generic "find a label on this task dict, checking aliases / top-level keys /
-custom_fields" helper) rather than duplicating it — see that module for the
-matching rules.
-"""
 from __future__ import annotations
 
+import asyncio
+import os
 import re
-from datetime import date
+from datetime import datetime, timedelta, timezone
 
 from api.automations.zoho import client
 from api.automations.completion_overview.service import read_task_field
-from api.automations.task_summary_report import artifacts, power_automate
+from api.automations.task_summary_report import artifacts, azure_openai, power_automate
 from api.automations.task_summary_report.models import JobResult, ReportRequest, field_map
 from api.automations.task_summary_report.pdf import ReportData, TaskRow, render_task_summary_pdf
+
+REPORT_TITLE = "Client Snapshot Report"
+
+# Project Group is derived from the Project Name's prefix (before the first
+# " - "), not read from a custom field. "FP" is kept alongside "FB" because the
+# approved sample report's own project names use "FP -" (e.g. "FP - Reviews");
+# drop "FB" if it turns out not to be a real prefix in your data.
+_PROJECT_GROUP_PREFIXES = {
+    "FB": "Financial Planning",
+    "FP": "Financial Planning",
+    "BS": "Business Services",
+    "SMSF": "SMSF",
+}
 
 
 # ---------- value helpers ----------
@@ -73,6 +80,12 @@ def _status_name(task: dict, fields: dict) -> str:
     return _display(task.get("status")) or "Not started"
 
 
+def _infer_project_group(project_name: str) -> str:
+    """FB/FP -> Financial Planning, BS -> Business Services, SMSF -> SMSF, else Uncategorized."""
+    prefix = re.split(r"\s*-\s*", project_name, maxsplit=1)[0].strip().upper()
+    return _PROJECT_GROUP_PREFIXES.get(prefix, "Uncategorized")
+
+
 # ---------- head-client matching ----------
 
 def _field_value(source: dict, key: str):
@@ -95,13 +108,7 @@ def _matches_head_client(task: dict, project: dict, head_client_id: str, fields:
 async def resolve_matching_tasks(
     req: ReportRequest, fields: dict
 ) -> tuple[list[tuple[dict, dict]], int]:
-    """Scan every (optionally active-only) project for tasks belonging to the head client.
-
-    Brute-force by necessity: Zoho's legacy Projects API has no server-side
-    filter for a custom field across all projects, so every project's tasks
-    are pulled and filtered client-side — the same approach resolve_projects()
-    takes in completion_overview/service.py.
-    """
+    
     projects = await client.list_projects()
     if req.active_only:
         projects = [p for p in projects if str(p.get("status", "")).lower() == "active"]
@@ -115,22 +122,18 @@ async def resolve_matching_tasks(
     return matched, len(projects)
 
 
-# ---------- row building & aggregation ----------
+# ---------- row building ----------
 
 def _build_rows(matched: list[tuple[dict, dict]], fields: dict) -> list[TaskRow]:
     rows = []
     for task, project in matched:
-        head_client_name = _display(_first_present(
-            read_task_field(task, fields["head_client"]),
-            read_task_field(project, fields["head_client"]),
-        ))
+        project_name = _display(project.get("name"))
         rows.append(TaskRow(
-            project_name=_display(project.get("name")),
+            project_name=project_name,
             task_name=_display(task.get("name")),
-            project_group=_display(read_task_field(task, fields["project_group"])) or "Ungrouped Project",
+            project_group=_infer_project_group(project_name),
             custom_status=_status_name(task, fields),
             owner=_owner_name(task, fields),
-            head_client_name=head_client_name,
             preparer=_display(read_task_field(task, fields["preparer"])),
             cash_account=_display(read_task_field(task, fields["cash_account"])),
             td_value=_to_float(read_task_field(task, fields["td_value"])),
@@ -138,77 +141,66 @@ def _build_rows(matched: list[tuple[dict, dict]], fields: dict) -> list[TaskRow]
             provider=_display(read_task_field(task, fields["provider"])),
             maturity_instruction=_display(read_task_field(task, fields["maturity_instruction"])),
             td_roa_reason=_display(read_task_field(task, fields["td_roa_reason"])),
-            latest_comment=_strip_html(
-                _first_present(read_task_field(task, fields["latest_comment"]), task.get("description"))
+            notes=_strip_html(
+                _first_present(read_task_field(task, fields["notes"]), task.get("description"))
             ),
         ))
     return rows
 
 
-def _count_by(rows: list[TaskRow], key) -> list[tuple[str, int]]:
-    counts: dict[str, int] = {}
-    for row in rows:
-        label = key(row) or "Not set"
-        counts[label] = counts.get(label, 0) + 1
-    ordered = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
-    ordered.append(("Total", len(rows)))
-    return ordered
-
-
-def _mode(values: list[str]) -> str:
-    values = [v for v in values if v]
-    if not values:
-        return ""
-    counts: dict[str, int] = {}
-    for v in values:
-        counts[v] = counts.get(v, 0) + 1
-    return max(counts.items(), key=lambda kv: kv[1])[0]
-
-
-def _term_deposit_summary(rows: list[TaskRow]) -> dict:
-    td_rows = [r for r in rows if r.td_value is not None]
-    return {
-        "active_count": len(td_rows),
-        "total_value": sum(r.td_value for r in td_rows),
-        "common_term": _mode([r.td_term for r in td_rows]),
-        "maturity_instruction": _mode([r.maturity_instruction for r in td_rows]),
-        "cash_account": _mode([r.cash_account for r in td_rows]),
-        "provider": _mode([r.provider for r in td_rows]),
-    }
-
-
-def _resolve_identity(matched: list[tuple[dict, dict]], fields: dict, head_client_id: str) -> tuple[str, str]:
-    """Return (head_client_display_name, report_title)."""
-    name = group = ""
+def _resolve_head_client_name(matched: list[tuple[dict, dict]], fields: dict, head_client_id: str) -> str:
     for task, project in matched:
-        if not name:
-            name = _display(_first_present(
-                read_task_field(task, fields["head_client"]), read_task_field(project, fields["head_client"])
-            ))
-        if not group:
-            group = _display(_first_present(
-                read_task_field(task, fields["client_group"]), read_task_field(project, fields["client_group"])
-            ))
-        if name and group:
-            break
-    name = name or head_client_id
-    title = f"{group or (name + ' Group')} — Task Summary"
-    return name, title
+        name = _display(_first_present(
+            read_task_field(task, fields["head_client"]), read_task_field(project, fields["head_client"])
+        ))
+        if name:
+            return name
+    return head_client_id
 
 
 def _today_display() -> str:
-    today = date.today()
+    today = datetime.now(timezone.utc).date()
     return f"{today.day} {today.strftime('%B %Y')}"
+
+
+# ---------- Selected Task Notes (Azure OpenAI) ----------
+
+def _last_activity_ms(task: dict) -> int | None:
+    for key in ("last_updated_time_long", "updated_date_long", "created_date_long", "created_time_long"):
+        value = task.get(key)
+        if value:
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                continue
+    return None
+
+
+def _selected_notes_cutoff_ms() -> int:
+    months = int(os.getenv("SELECTED_NOTES_MONTHS", "6"))
+    cutoff = datetime.now(timezone.utc) - timedelta(days=30 * months)
+    return int(cutoff.timestamp() * 1000)
+
+
+async def _build_selected_notes(
+    matched: list[tuple[dict, dict]], rows: list[TaskRow]
+) -> list[tuple[str, str, str]]:
+
+    cutoff_ms = _selected_notes_cutoff_ms()
+    candidates = [
+        row for (task, _project), row in zip(matched, rows)
+        if row.notes and (_last_activity_ms(task) is None or _last_activity_ms(task) >= cutoff_ms)
+    ]
+    summaries = await asyncio.gather(
+        *[azure_openai.summarize_note(r.task_name, r.project_name, r.notes) for r in candidates]
+    )
+    return [(r.task_name, r.project_name, summary or "") for r, summary in zip(candidates, summaries)]
 
 
 # ---------- orchestration ----------
 
 async def run_report(req: ReportRequest, job_id: str = "") -> JobResult:
-    """Resolve tasks, render the PDF, and deliver it. Result is recorded either way.
-
-    `job_id` is what the rendered PDF is filed under so the status route can link
-    to it; pass it whenever the caller wants the PDF viewable afterwards.
-    """
+  
     fields = field_map()
     result = JobResult(
         job_id=job_id,
@@ -226,25 +218,16 @@ async def run_report(req: ReportRequest, job_id: str = "") -> JobResult:
         return result
 
     rows = _build_rows(matched, fields)
-    head_client_name, title = _resolve_identity(matched, fields, req.head_client_id)
-    result.head_client_name = head_client_name
+    result.head_client_name = _resolve_head_client_name(matched, fields, req.head_client_id)
+    selected_notes = await _build_selected_notes(matched, rows)
 
     data = ReportData(
-        title=title,
-        head_client_name=head_client_name,
+        title=REPORT_TITLE,
         tasks_total=len(rows),
         prepared_by="Advisory Partners",
         as_at=_today_display(),
-        by_project_group=_count_by(rows, lambda r: r.project_group),
-        by_status=_count_by(rows, lambda r: r.custom_status),
-        td_summary=_term_deposit_summary(rows),
         rows=rows,
-        selected_notes=[(r.task_name, r.project_name, r.latest_comment) for r in rows if r.latest_comment],
-        footer_note=(
-            "Grayed cells indicate fields that do not apply to that task (BAS/IAS "
-            "applies to activity-statement tasks; term-deposit fields apply to FP "
-            f"- Term Deposit tasks). Head client is {head_client_name} for all tasks."
-        ),
+        selected_notes=selected_notes,
     )
 
     try:

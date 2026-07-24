@@ -1,14 +1,4 @@
-"""
-Durable job store for the Task Summary report — same rationale and backend
-selection as completion_overview/jobs.py: Azure Table Storage in the cloud
-(Flex Consumption instances are ephemeral and scale out, so an in-process dict
-created while serving the POST would be invisible to whichever instance serves
-the status poll), an in-process dict for local dev / tests.
 
-Kept as its own copy (own table, own partition) rather than sharing
-completion_overview's table, so this automation's job records stay isolated
-from that one's.
-"""
 from __future__ import annotations
 
 import os

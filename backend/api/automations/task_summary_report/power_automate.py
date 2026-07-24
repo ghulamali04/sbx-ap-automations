@@ -1,16 +1,4 @@
-"""
-Deliver the rendered Task Summary PDF by calling a Power Automate flow.
 
-Body matches the flow's declared schema exactly:
-
-    {"filename": str, "content_type": str, "image_b64": [str]}
-
-`image_b64` is a single-element list holding the base64 PDF — the key name is
-inherited from the flow's existing image-delivery schema (see
-completion_overview/power_automate.py), which also accepts a PDF for this flow.
-Webhook URL validation (https + allowlisted host) is shared with that module —
-see validate_webhook_url() there, reused as-is rather than duplicated.
-"""
 from __future__ import annotations
 
 import base64

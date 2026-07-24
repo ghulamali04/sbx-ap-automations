@@ -1,20 +1,4 @@
-"""
-Dispatch of Task Summary report work — same rationale as
-completion_overview/queue.py: the endpoint returns 202 immediately and the
-actual Zoho scan + PDF render + Power Automate delivery happens elsewhere,
-because once the 202 is written a Flex Consumption instance may freeze or
-scale in and kill an in-process asyncio task mid-report.
 
-Backend is chosen at runtime, mirroring jobs.py:
-
-  * AzureWebJobsStorage__queueServiceUri set (sandbox / prod) -> Azure Queue
-    Storage; the queue-triggered function in function_app.py runs it on a
-    fresh invocation.
-  * unset (local dev / tests) -> an in-process asyncio task.
-
-Kept as its own copy (own queue name) rather than sharing
-completion_overview's queue, so this automation's dispatch stays isolated.
-"""
 from __future__ import annotations
 
 import asyncio
@@ -73,12 +57,7 @@ async def process_message(body: str) -> None:
 
 
 async def run_job(job_id: str, req: ReportRequest) -> None:
-    """Run the report and record the outcome on the job record.
-
-    Failures are caught and stored rather than re-raised: re-raising would make
-    the host retry the message, re-running an expensive Zoho scan that will
-    fail again, with the caller polling the status URL seeing nothing useful.
-    """
+  
     jobs.set_status(job_id, "running")
     try:
         result = await service.run_report(req, job_id=job_id)

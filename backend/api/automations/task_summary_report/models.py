@@ -1,14 +1,4 @@
-"""
-Request/response models for the head-client Task Summary PDF report.
 
-Zoho Projects custom-field *labels* (Project Group, Head Client, Term Deposit
-Value, ...) were not confirmed against live Zoho data when this was built, so
-every label this report reads is resolved through field_map() at call time
-(env-driven, sensible defaults) rather than hardcoded — point TASK_FIELD_* at
-the real labels once known, no code change needed. See read_task_field() in
-api.automations.completion_overview.service for how a label is matched against
-a task/project's custom_fields.
-"""
 from __future__ import annotations
 
 import os
@@ -18,12 +8,10 @@ from pydantic import BaseModel, Field
 
 
 def field_map() -> dict[str, str]:
-    """Zoho task/project custom-field labels this report reads, overridable via env."""
+   
     return {
         "head_client": os.getenv("TASK_FIELD_HEAD_CLIENT", "Head Client"),
         "head_client_id": os.getenv("TASK_FIELD_HEAD_CLIENT_ID", "Head Client ID"),
-        "client_group": os.getenv("TASK_FIELD_CLIENT_GROUP", "Client Group"),
-        "project_group": os.getenv("TASK_FIELD_PROJECT_GROUP", "Project Group"),
         "custom_status": os.getenv("TASK_FIELD_CUSTOM_STATUS", "Custom Status"),
         "owner": os.getenv("TASK_FIELD_OWNER", "Owner"),
         "preparer": os.getenv("TASK_FIELD_PREPARER", "Who Prepares (BAS/IAS)"),
@@ -33,7 +21,7 @@ def field_map() -> dict[str, str]:
         "provider": os.getenv("TASK_FIELD_PROVIDER", "Provider"),
         "maturity_instruction": os.getenv("TASK_FIELD_MATURITY_INSTRUCTION", "Maturity Instruction"),
         "td_roa_reason": os.getenv("TASK_FIELD_TD_ROA_REASON", "TD - ROA Reason"),
-        "latest_comment": os.getenv("TASK_FIELD_LATEST_COMMENT", "Latest Comment"),
+        "notes": os.getenv("TASK_FIELD_NOTES", "Notes"),
     }
 
 

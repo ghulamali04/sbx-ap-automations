@@ -1,29 +1,4 @@
-"""
-Storage for the rendered Task Summary PDF, so it can be viewed in a browser
-after the job finishes.
 
-Until now the PDF bytes were handed to Power Automate and dropped. Keeping them
-means the status URL can hand back a link the caller opens to read the actual
-report, rather than only counts and a byte size.
-
-Backend is chosen at runtime, mirroring jobs.py / queue.py:
-
-  * AzureWebJobsStorage__blobServiceUri set (sandbox / prod) -> Azure Blob
-    Storage, reached with the Function App's managed identity. Required on Flex
-    Consumption: the PDF is rendered on a queue-trigger invocation and read back
-    on a later HTTP invocation, which is almost never the same instance, and the
-    package mount is read-only so a temp file is not an option either.
-
-  * unset (local dev / tests) -> an in-process dict, which is fine for a
-    single-process `func start` / uvicorn run.
-
-A PDF is far too large for the Table Storage job record (64 KB per string
-property), which is why this is a separate store rather than another column on
-the entity in jobs.py.
-
-Blobs are never deleted here. Set a lifecycle-management rule on the container
-if these should age out — see DEPLOYMENT.md §3.3.
-"""
 from __future__ import annotations
 
 import os
