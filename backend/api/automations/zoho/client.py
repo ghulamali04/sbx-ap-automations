@@ -52,6 +52,8 @@ async def get_all_tasks(project_id: str) -> list[dict]:
                 url, headers=headers,
                 params={"index": index, "range": _PAGE, "status": "all"},
             )
+            if resp.status_code == 204:
+                break
             if resp.status_code != 200:
                 raise RuntimeError(
                     f"Zoho tasks fetch failed for {project_id} (HTTP {resp.status_code}): {resp.text[:300]}"
@@ -62,3 +64,39 @@ async def get_all_tasks(project_id: str) -> list[dict]:
                 break
             index += _PAGE
     return tasks
+
+
+async def get_task_comments(project_id: str, task_id: str) -> list[dict]:
+    """Return the complete comment history for one task, following pagination."""
+    url = (
+        f"{PROJECTS_API_BASE}/restapi/portal/{_portal()}/projects/"
+        f"{project_id}/tasks/{task_id}/comments/"
+    )
+    headers = await _headers()
+    comments: list[dict] = []
+    index = 1
+    async with httpx.AsyncClient(timeout=30) as http_client:
+        while True:
+            resp = await http_client.get(
+                url,
+                headers=headers,
+                params={
+                    "index": index,
+                    "range": _PAGE,
+                    "sort_column": "created_time",
+                    "sort_order": "ascending",
+                },
+            )
+            if resp.status_code == 204:
+                break
+            if resp.status_code != 200:
+                raise RuntimeError(
+                    f"Zoho comments fetch failed for task {task_id} "
+                    f"(HTTP {resp.status_code}): {resp.text[:300]}"
+                )
+            page = resp.json().get("comments", [])
+            comments.extend(page)
+            if len(page) < _PAGE:
+                break
+            index += _PAGE
+    return comments

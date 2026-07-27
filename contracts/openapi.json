@@ -1,0 +1,886 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Advisory Partners Automations API",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Health",
+        "description": "Liveness probe — the first thing to hit once deployed to sandbox.",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/azure-model-test": {
+      "get": {
+        "summary": "Azure Model Test",
+        "description": "Verify Azure identity, the Foundry endpoint, and the model deployment.",
+        "operationId": "azure_model_test_azure_model_test_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/echo": {
+      "post": {
+        "summary": "Echo",
+        "description": "Trivial route that exercises Pydantic request/response validation.",
+        "operationId": "echo_echo_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EchoIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EchoOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/login": {
+      "get": {
+        "tags": [
+          "zoho"
+        ],
+        "summary": "Login",
+        "description": "Redirect the user to Zoho for authorization.",
+        "operationId": "login_login_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/callback": {
+      "get": {
+        "tags": [
+          "zoho"
+        ],
+        "summary": "Callback",
+        "description": "Handle the Zoho callback, exchange the code for tokens, and store them.",
+        "operationId": "callback_callback_get",
+        "parameters": [
+          {
+            "name": "code",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Code"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/portals": {
+      "get": {
+        "tags": [
+          "zoho"
+        ],
+        "summary": "List Portals",
+        "description": "List every Zoho Projects portal the current token can access.\n\nNote: Zoho's list endpoint only returns portals the account *owns*, not ones\nit is merely a *member* of — those come back as 204. To use a member portal,\nread its id from the browser URL (projects.zoho.com/portal/<id>) and set\nZOHO_PORTAL_ID.",
+        "operationId": "list_portals_portals_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects": {
+      "get": {
+        "tags": [
+          "zoho"
+        ],
+        "summary": "List Projects",
+        "description": "List projects under the configured portal (ZOHO_PORTAL_ID).",
+        "operationId": "list_projects_projects_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reports/completion": {
+      "post": {
+        "tags": [
+          "completion-overview"
+        ],
+        "summary": "Start Report",
+        "description": "Queue a report run and return 202 + a Location header to poll.\n\nAn empty body is valid: it selects the latest BAS and IAS projects by default.",
+        "operationId": "start_report_reports_completion_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/api__automations__completion_overview__models__ReportRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Req"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/api__automations__completion_overview__models__ReportAccepted"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reports/completion/{job_id}": {
+      "get": {
+        "tags": [
+          "completion-overview"
+        ],
+        "summary": "Get Report Status",
+        "description": "Poll a queued report; returns queued | running | completed | failed.",
+        "operationId": "get_report_status_reports_completion__job_id__get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/api__automations__completion_overview__models__JobResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reports/task-summary": {
+      "post": {
+        "tags": [
+          "task-summary-report"
+        ],
+        "summary": "Start Report",
+        "description": "Queue a Task Summary PDF run for one head client and return 202 + a Location to poll.",
+        "operationId": "start_report_reports_task_summary_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/api__automations__task_summary_report__models__ReportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/api__automations__task_summary_report__models__ReportAccepted"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reports/task-summary/{job_id}": {
+      "get": {
+        "tags": [
+          "task-summary-report"
+        ],
+        "summary": "Get Task Summary Status",
+        "operationId": "get_task_summary_status_reports_task_summary__job_id__get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/api__automations__task_summary_report__models__JobResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reports/task-summary/{job_id}/pdf": {
+      "get": {
+        "tags": [
+          "task-summary-report"
+        ],
+        "summary": "View Task Summary Pdf",
+        "operationId": "view_task_summary_pdf_reports_task_summary__job_id__pdf_get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "download",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Download"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ChartResult": {
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "title": "Project Id"
+          },
+          "project_name": {
+            "type": "string",
+            "title": "Project Name"
+          },
+          "filename": {
+            "type": "string",
+            "title": "Filename"
+          },
+          "panels": {
+            "items": {
+              "$ref": "#/components/schemas/PanelSummary"
+            },
+            "type": "array",
+            "title": "Panels"
+          },
+          "tasks_total": {
+            "type": "integer",
+            "title": "Tasks Total",
+            "default": 0
+          },
+          "bytes_png": {
+            "type": "integer",
+            "title": "Bytes Png",
+            "default": 0
+          },
+          "delivered": {
+            "type": "boolean",
+            "title": "Delivered",
+            "default": false
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "project_id",
+          "project_name",
+          "filename"
+        ],
+        "title": "ChartResult"
+      },
+      "EchoIn": {
+        "properties": {
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "title": "EchoIn"
+      },
+      "EchoOut": {
+        "properties": {
+          "echoed": {
+            "type": "string",
+            "title": "Echoed"
+          },
+          "length": {
+            "type": "integer",
+            "title": "Length"
+          }
+        },
+        "type": "object",
+        "required": [
+          "echoed",
+          "length"
+        ],
+        "title": "EchoOut"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "PanelSummary": {
+        "properties": {
+          "grouping": {
+            "type": "string",
+            "title": "Grouping"
+          },
+          "people": {
+            "type": "integer",
+            "title": "People"
+          },
+          "tasks_included": {
+            "type": "integer",
+            "title": "Tasks Included"
+          },
+          "tasks_excluded": {
+            "type": "integer",
+            "title": "Tasks Excluded"
+          }
+        },
+        "type": "object",
+        "required": [
+          "grouping",
+          "people",
+          "tasks_included",
+          "tasks_excluded"
+        ],
+        "title": "PanelSummary",
+        "description": "Per-grouping detail behind one panel of a combined chart."
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "api__automations__completion_overview__models__JobResult": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "title": "Job Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "charts": {
+            "items": {
+              "$ref": "#/components/schemas/ChartResult"
+            },
+            "type": "array",
+            "title": "Charts"
+          },
+          "projects_matched": {
+            "type": "integer",
+            "title": "Projects Matched",
+            "default": 0
+          },
+          "projects_selected": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Projects Selected"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id",
+          "status"
+        ],
+        "title": "JobResult"
+      },
+      "api__automations__completion_overview__models__ReportAccepted": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "title": "Job Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "status_url": {
+            "type": "string",
+            "title": "Status Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id",
+          "status",
+          "status_url"
+        ],
+        "title": "ReportAccepted",
+        "description": "202 body — the job was queued; poll `status_url`."
+      },
+      "api__automations__completion_overview__models__ReportRequest": {
+        "properties": {
+          "projects_include": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Projects Include",
+            "description": "Explicit Zoho project ids to report on."
+          },
+          "projects_excluded": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Projects Excluded",
+            "description": "Zoho project ids to drop from the selection."
+          },
+          "name_filters": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Name Filters",
+            "description": "Project-name substrings used when projects_include is empty."
+          },
+          "active_only": {
+            "type": "boolean",
+            "title": "Active Only",
+            "description": "Only include projects Zoho marks active.",
+            "default": true
+          },
+          "metric_field": {
+            "type": "string",
+            "title": "Metric Field",
+            "description": "Zoho task field to average.",
+            "default": "Completion Percentage"
+          },
+          "group_by": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Group By",
+            "description": "Zoho task fields to group by — one stacked panel each, in one combined PNG."
+          },
+          "webhook_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Webhook Url",
+            "description": "Power Automate flow to POST the charts to. Falls back to POWER_AUTOMATE_WEBHOOK_URL."
+          },
+          "filename": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filename",
+            "description": "Label for the batch sent to the flow. Defaults to 'report-<today>'."
+          },
+          "dry_run": {
+            "type": "boolean",
+            "title": "Dry Run",
+            "description": "Render charts but skip delivery.",
+            "default": false
+          }
+        },
+        "type": "object",
+        "title": "ReportRequest",
+        "description": "Payload from the calling flow.\n\nProject selection:\n  - `projects_include` given -> use exactly those ids.\n  - otherwise              -> match `name_filters` and take the latest month\n                              available for each (e.g. the newest BAS and the\n                              newest IAS).\n`projects_excluded` is always applied last, so it can drop an id that either\npath selected."
+      },
+      "api__automations__task_summary_report__models__JobResult": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "title": "Job Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "head_client_id": {
+            "type": "string",
+            "title": "Head Client Id",
+            "default": ""
+          },
+          "head_client_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Head Client Name"
+          },
+          "projects_scanned": {
+            "type": "integer",
+            "title": "Projects Scanned",
+            "default": 0
+          },
+          "tasks_matched": {
+            "type": "integer",
+            "title": "Tasks Matched",
+            "default": 0
+          },
+          "bytes_pdf": {
+            "type": "integer",
+            "title": "Bytes Pdf",
+            "default": 0
+          },
+          "delivered": {
+            "type": "boolean",
+            "title": "Delivered",
+            "default": false
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "filename": {
+            "type": "string",
+            "title": "Filename",
+            "default": ""
+          },
+          "pdf_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pdf Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id",
+          "status"
+        ],
+        "title": "JobResult"
+      },
+      "api__automations__task_summary_report__models__ReportAccepted": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "title": "Job Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "status_url": {
+            "type": "string",
+            "title": "Status Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id",
+          "status",
+          "status_url"
+        ],
+        "title": "ReportAccepted",
+        "description": "202 body — the job was queued; poll status_url."
+      },
+      "api__automations__task_summary_report__models__ReportRequest": {
+        "properties": {
+          "head_client_id": {
+            "type": "string",
+            "title": "Head Client Id",
+            "description": "Zoho value identifying the head client to report on — matched against the configured head-client field on each task/project."
+          },
+          "active_only": {
+            "type": "boolean",
+            "title": "Active Only",
+            "description": "Only search Zoho projects Zoho marks active.",
+            "default": true
+          },
+          "webhook_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Webhook Url",
+            "description": "Power Automate flow to POST the PDF to. Falls back to POWER_AUTOMATE_WEBHOOK_URL."
+          },
+          "filename": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filename",
+            "description": "PDF filename sent to the flow. Defaults to 'task-summary-<head_client_id>-<date>.pdf'."
+          },
+          "dry_run": {
+            "type": "boolean",
+            "title": "Dry Run",
+            "description": "Render the PDF but skip delivery to Power Automate.",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "head_client_id"
+        ],
+        "title": "ReportRequest",
+        "description": "Payload for the POST /reports/task-summary endpoint."
+      }
+    }
+  }
+}

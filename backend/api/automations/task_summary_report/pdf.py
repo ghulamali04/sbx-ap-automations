@@ -1,8 +1,7 @@
-
 from __future__ import annotations
 
 import io
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from xml.sax.saxutils import escape
 
 from reportlab.lib import colors
@@ -47,6 +46,7 @@ class TaskRow:
     maturity_instruction: str
     td_roa_reason: str
     notes: str
+    td_applicable: bool = True
 
 
 @dataclass
@@ -69,7 +69,7 @@ def _p(text: str | None, style: ParagraphStyle = _CELL) -> Paragraph:
 
 def _header_block(data: ReportData) -> list:
     subtitle = (
-        f"{data.tasks_total} active tasks &nbsp;·&nbsp; "
+        f"{data.tasks_total} tasks &nbsp;·&nbsp; "
         f"Prepared by {escape(data.prepared_by)} &nbsp;·&nbsp; As at {escape(data.as_at)}"
     )
     return [
@@ -85,13 +85,11 @@ def _header_block(data: ReportData) -> list:
     ]
 
 
-# Third value is a relative weight, not a point width: the table is scaled to fill
-# the page, so dropping or adding a column reflows the rest instead of leaving a
-# gap at the right margin.
+# The Task Register intentionally excludes Project Group, Latest Comment, and
+# Head Client Name. Project Group remains an internal classification.
 _TASK_COLUMNS = [
     ("Project Name", "project_name", 95),
     ("Task Name", "task_name", 118),
-    ("Project Group", "project_group", 78),
     ("Custom Status", "custom_status", 62),
     ("Owner", "owner", 62),
     ("Who prepares BAS/IAS", "preparer", 58),
@@ -124,11 +122,17 @@ def _task_register_table(rows: list[TaskRow], page_width: float) -> Table:
         if band_on:
             band_cells.append(r_index)
 
+        not_applicable = "Not applicable"
         values = [
-            row.project_name, row.task_name, row.project_group, row.custom_status,
-            row.owner, row.preparer, row.cash_account,
-            _fmt_money(row.td_value), row.td_term, row.provider,
-            row.maturity_instruction, row.td_roa_reason, row.notes,
+            row.project_name, row.task_name, row.custom_status,
+            row.owner, row.preparer,
+            row.cash_account if row.td_applicable else not_applicable,
+            _fmt_money(row.td_value) if row.td_applicable else not_applicable,
+            row.td_term if row.td_applicable else not_applicable,
+            row.provider if row.td_applicable else not_applicable,
+            row.maturity_instruction if row.td_applicable else not_applicable,
+            row.td_roa_reason if row.td_applicable else not_applicable,
+            row.notes,
         ]
         cells = []
         for c_index, value in enumerate(values):

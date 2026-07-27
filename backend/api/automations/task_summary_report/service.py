@@ -86,6 +86,16 @@ def _infer_project_group(project_name: str) -> str:
     return _PROJECT_GROUP_PREFIXES.get(prefix, "Uncategorized")
 
 
+def _is_term_deposit_project(project_name: str) -> bool:
+    configured = os.getenv("TERM_DEPOSIT_PROJECT_NAMES", "FP - Term Deposits")
+    names = {
+        name.strip().casefold()
+        for name in configured.split(",")
+        if name.strip()
+    }
+    return project_name.strip().casefold() in names
+
+
 # ---------- head-client matching ----------
 
 def _field_value(source: dict, key: str):
@@ -126,6 +136,10 @@ async def resolve_matching_tasks(
 
 def _build_rows(matched: list[tuple[dict, dict]], fields: dict) -> list[TaskRow]:
     rows = []
+    has_term_deposit_task = any(
+        _is_term_deposit_project(_display(project.get("name")))
+        for _task, project in matched
+    )
     for task, project in matched:
         project_name = _display(project.get("name"))
         rows.append(TaskRow(
@@ -144,8 +158,16 @@ def _build_rows(matched: list[tuple[dict, dict]], fields: dict) -> list[TaskRow]
             notes=_strip_html(
                 _first_present(read_task_field(task, fields["notes"]), task.get("description"))
             ),
+            td_applicable=has_term_deposit_task,
         ))
-    return rows
+    return sorted(
+        rows,
+        key=lambda row: (
+            row.project_group.casefold(),
+            row.project_name.casefold(),
+            row.task_name.casefold(),
+        ),
+    )
 
 
 def _resolve_head_client_name(matched: list[tuple[dict, dict]], fields: dict, head_client_id: str) -> str:
@@ -177,24 +199,102 @@ def _last_activity_ms(task: dict) -> int | None:
 
 
 def _selected_notes_cutoff_ms() -> int:
-    months = int(os.getenv("SELECTED_NOTES_MONTHS", "6"))
-    cutoff = datetime.now(timezone.utc) - timedelta(days=30 * months)
+    configured_days = os.getenv("SELECTED_NOTES_DAYS")
+    if configured_days is not None:
+        days = int(configured_days)
+    else:
+        # Keep the old setting as a compatibility fallback, but align the
+        # default with the approved 60-day inclusion rule.
+        configured_months = os.getenv("SELECTED_NOTES_MONTHS")
+        days = 30 * int(configured_months) if configured_months else 60
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
     return int(cutoff.timestamp() * 1000)
+
+
+def _comment_time_ms(comment: dict) -> int | None:
+    for key in ("created_time_long", "last_updated_time_long", "modified_time_long"):
+        value = comment.get(key)
+        if value:
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                continue
+    return None
+
+
+def _comment_context(comments: list[dict]) -> str:
+    history = []
+    for comment in comments:
+        content = _strip_html(comment.get("content"))
+        if not content:
+            continue
+        date = _display(
+            _first_present(
+                comment.get("created_time_format"),
+                comment.get("created_time"),
+            )
+        )
+        author = _display(comment.get("added_person"))
+        prefix = " - ".join(part for part in (date, author) if part)
+        history.append(f"{prefix}: {content}" if prefix else content)
+    return "\n".join(history)
 
 
 async def _build_selected_notes(
     matched: list[tuple[dict, dict]], rows: list[TaskRow]
 ) -> list[tuple[str, str, str]]:
-
     cutoff_ms = _selected_notes_cutoff_ms()
-    candidates = [
-        row for (task, _project), row in zip(matched, rows)
-        if row.notes and (_last_activity_ms(task) is None or _last_activity_ms(task) >= cutoff_ms)
-    ]
-    summaries = await asyncio.gather(
-        *[azure_openai.summarize_note(r.task_name, r.project_name, r.notes) for r in candidates]
+    concurrency = max(1, int(os.getenv("SELECTED_NOTES_CONCURRENCY", "8")))
+    semaphore = asyncio.Semaphore(concurrency)
+
+    async def summarize_one(
+        task: dict,
+        project: dict,
+        row: TaskRow,
+    ) -> tuple[str, str, str] | None:
+        comments: list[dict] = []
+        task_id = _display(_first_present(task.get("id"), task.get("id_string")))
+        project_id = _display(project.get("id"))
+        if task_id and project_id:
+            try:
+                async with semaphore:
+                    comments = await client.get_task_comments(project_id, task_id)
+            except Exception:  # noqa: BLE001 - Notes still provide a safe fallback
+                comments = []
+
+        has_recent_comment = any(
+            timestamp is not None and timestamp >= cutoff_ms
+            for timestamp in (_comment_time_ms(comment) for comment in comments)
+        )
+        task_activity = _last_activity_ms(task)
+        has_recent_notes_field = bool(
+            row.notes
+            and (task_activity is None or task_activity >= cutoff_ms)
+        )
+        if not has_recent_comment and not has_recent_notes_field:
+            return None
+
+        context_parts = []
+        if row.notes:
+            context_parts.append(f"Task Notes:\n{row.notes}")
+        comment_history = _comment_context(comments)
+        if comment_history:
+            context_parts.append(f"Comment History:\n{comment_history}")
+        context = "\n\n".join(context_parts)
+        summary = await azure_openai.summarize_note(
+            row.task_name,
+            row.project_name,
+            context,
+        )
+        return row.task_name, row.project_name, summary or ""
+
+    selected = await asyncio.gather(
+        *[
+            summarize_one(task, project, row)
+            for (task, project), row in zip(matched, rows)
+        ]
     )
-    return [(r.task_name, r.project_name, summary or "") for r, summary in zip(candidates, summaries)]
+    return [note for note in selected if note is not None]
 
 
 # ---------- orchestration ----------
@@ -254,7 +354,12 @@ async def run_report(req: ReportRequest, job_id: str = "") -> JobResult:
         return result
 
     try:
-        await power_automate.deliver_pdf(webhook, filename=req.resolved_filename(), pdf_bytes=pdf_bytes)
+        await power_automate.deliver_pdf(
+            webhook,
+            requestor_email=req.requestor_email or "",
+            filename=req.resolved_filename(),
+            pdf_bytes=pdf_bytes,
+        )
         result.delivered = True
     except Exception as exc:  # noqa: BLE001 — surface delivery failure on the job
         result.error = str(exc)

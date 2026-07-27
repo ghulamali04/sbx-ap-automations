@@ -6,12 +6,27 @@ import base64
 import httpx
 
 
-async def deliver_pdf(webhook_url: str, *, filename: str, pdf_bytes: bytes) -> None:
-    """POST the PDF to the flow. Raises on non-2xx."""
+async def deliver_pdf(
+    webhook_url: str,
+    *,
+    requestor_email: str,
+    filename: str,
+    pdf_bytes: bytes,
+) -> None:
+    """POST one email-ready PDF attachment to the flow. Raises on non-2xx."""
+    encoded_pdf = base64.b64encode(pdf_bytes).decode("ascii")
     payload = {
+        "requestor_email": requestor_email,
         "filename": filename,
         "content_type": "application/pdf",
-        "image_b64": [base64.b64encode(pdf_bytes).decode("ascii")],
+        "content_b64": encoded_pdf,
+        "attachments": [
+            {
+                "name": filename,
+                "contentType": "application/pdf",
+                "contentBytes": encoded_pdf,
+            }
+        ],
     }
     async with httpx.AsyncClient(timeout=180) as client:
         resp = await client.post(webhook_url, json=payload)

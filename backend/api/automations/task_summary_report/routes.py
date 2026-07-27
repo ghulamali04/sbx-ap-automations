@@ -23,6 +23,11 @@ async def start_report(req: ReportRequest, *, request: Request, response: Respon
             detail="No webhook configured. Set POWER_AUTOMATE_WEBHOOK_URL, pass "
                    "webhook_url, or send dry_run=true to render without delivering.",
         )
+    if not req.dry_run and not (req.requestor_email or "").strip():
+        raise HTTPException(
+            status_code=400,
+            detail="requestor_email is required when the PDF will be delivered.",
+        )
     job_id = create_job()
     queue.dispatch_report(job_id, req)
 

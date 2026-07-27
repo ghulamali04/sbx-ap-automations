@@ -34,7 +34,14 @@ class ReportRequest(BaseModel):
                     "against the configured head-client field on each task/project.",
     )
     active_only: bool = Field(
-        default=True, description="Only search Zoho projects Zoho marks active."
+        default=False,
+        description="Only search Zoho projects Zoho marks active. Defaults to false "
+                    "so the snapshot includes active and historical tasks.",
+    )
+    requestor_email: str | None = Field(
+        default=None,
+        description="M365 email address that the Power Automate flow sends the "
+                    "completed PDF to. Required unless dry_run is true.",
     )
     webhook_url: str | None = Field(
         default=None,

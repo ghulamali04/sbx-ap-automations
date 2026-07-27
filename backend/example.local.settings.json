@@ -12,6 +12,13 @@
     "POWER_AUTOMATE_ALLOWED_HOSTS": "",
     "CORS_ALLOW_ORIGINS": "",
     "KEY_VAULT_URI": "",
-    "ZOHO_TOKENS_SECRET_NAME": "zoho-tokens"
+    "ZOHO_TOKENS_SECRET_NAME": "zoho-tokens",
+    "AZURE_OPENAI_ENDPOINT": "https://gali-1170-resource.services.ai.azure.com/openai/v1/",
+    "AZURE_OPENAI_DEPLOYMENT": "Mistral-Large-3",
+    "AZURE_OPENAI_API_VERSION": "2024-10-21",
+    "AZURE_OPENAI_API_MODE": "auto",
+    "SELECTED_NOTES_DAYS": "60",
+    "SELECTED_NOTES_CONCURRENCY": "8",
+    "TERM_DEPOSIT_PROJECT_NAMES": "FP - Term Deposits"
   }
 }

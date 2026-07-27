@@ -47,10 +47,20 @@ func start
 
 Interactive API docs are available locally at `http://localhost:7071/api/docs` (FastAPI's Swagger UI). Remember every route is prefixed with `/api` by the Functions host.
 
+To verify the Azure Foundry model and current Azure identity:
+
+```bash
+curl http://localhost:7071/api/azure-model-test
+```
+
+The successful response names `Mistral-Large-3` and answers that Paris is the
+capital of France. Locally, authenticate first with `az login`. In Azure, assign
+the Function App's managed identity permission to invoke the model deployment.
+
 Regenerate the API contract after changing any route:
 
 ```bash
-python scripts/export_openapi.py   # writes ../contracts/openapi.json
+python api/scripts/export_openapi.py   # writes ../contracts/openapi.json
 ```
 
 CI fails if `contracts/openapi.json` is out of date, so commit it alongside the route change in the same PR.

@@ -1,17 +1,4 @@
-"""
-FastAPI application for the Advisory Partners automations backend.
 
-This is a plain ASGI app. It has no dependency on the Azure Functions runtime,
-so it can be run two ways:
-  1. Standalone for quick testing:   uvicorn api.main:app --reload --port 8000
-  2. Inside the Functions host:       func start   (mounted by ../function_app.py)
-
-Under uvicorn, routes are served at the root (e.g. /health).
-Under the Functions host, the runtime prefixes every route with /api (e.g. /api/health).
-
-Per-automation logic and routes live under api/automations/<name>/ and are mounted
-here as routers. main.py itself only owns app setup and cross-cutting concerns.
-"""
 import os
 
 # Load local.settings.json into the environment (no-op under `func start`, which
@@ -19,13 +6,15 @@ import os
 from api.settings import load_local_settings
 load_local_settings()
 
-from fastapi import FastAPI
+from azure.core.exceptions import ClientAuthenticationError
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from api.automations.zoho.routes import router as zoho_router
 from api.automations.completion_overview.routes import router as completion_router
 from api.automations.task_summary_report.routes import router as task_summary_router
+from api.automations.task_summary_report import azure_openai
 
 app = FastAPI(
     title="Advisory Partners Automations API",
@@ -48,6 +37,32 @@ app.add_middleware(
 async def health():
     """Liveness probe — the first thing to hit once deployed to sandbox."""
     return {"status": "ok", "service": "ap-automations"}
+
+
+@app.get("/azure-model-test")
+async def azure_model_test():
+    """Verify Azure identity, the Foundry endpoint, and the model deployment."""
+    try:
+        model_response = await azure_openai.test_model()
+    except ClientAuthenticationError as exc:
+        raise HTTPException(
+            status_code=401,
+            detail=(
+                "Azure sign-in was not completed. Request this endpoint once, "
+                "then immediately authenticate using the latest device code "
+                "shown in the terminal."
+            ),
+        ) from exc
+    except Exception as exc:  # noqa: BLE001 - convert provider failures into an API response
+        raise HTTPException(
+            status_code=502,
+            detail="Azure model request failed. Check the server log for details.",
+        ) from exc
+    return {
+        "status": "ok",
+        "model": azure_openai.deployment_name(),
+        "response": model_response,
+    }
 
 
 class EchoIn(BaseModel):

@@ -62,7 +62,7 @@ async def run_job(job_id: str, req: ReportRequest) -> None:
     try:
         result = await service.run_report(req, job_id=job_id)
         result.job_id = job_id
-        result.status = "completed"
+        result.status = "failed" if result.error else "completed"
         jobs.save_job(result)
     except Exception as exc:  # noqa: BLE001 — surface any failure on the job record
         jobs.set_status(job_id, "failed", error=str(exc))
