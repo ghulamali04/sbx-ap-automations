@@ -840,8 +840,20 @@
           "active_only": {
             "type": "boolean",
             "title": "Active Only",
-            "description": "Only search Zoho projects Zoho marks active.",
-            "default": true
+            "description": "Only search Zoho projects Zoho marks active. Defaults to false so the snapshot includes active and historical tasks.",
+            "default": false
+          },
+          "requestor_email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requestor Email",
+            "description": "M365 email address that the Power Automate flow sends the completed PDF to. Required unless dry_run is true."
           },
           "webhook_url": {
             "anyOf": [
@@ -853,7 +865,7 @@
               }
             ],
             "title": "Webhook Url",
-            "description": "Power Automate flow to POST the PDF to. Falls back to POWER_AUTOMATE_WEBHOOK_URL."
+            "description": "Power Automate flow to POST the PDF to. Falls back to TASK_SUMMARY_WEBHOOK_URL, then POWER_AUTOMATE_WEBHOOK_URL."
           },
           "filename": {
             "anyOf": [

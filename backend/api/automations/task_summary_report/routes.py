@@ -3,8 +3,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request, Response
 
-from api.automations.completion_overview.power_automate import validate_webhook_url
-from api.automations.task_summary_report import artifacts, queue
+from api.automations.task_summary_report import artifacts, power_automate, queue
 from api.automations.task_summary_report.jobs import create_job, get_job
 from api.automations.task_summary_report.models import JobResult, ReportAccepted, ReportRequest
 
@@ -16,12 +15,13 @@ async def start_report(req: ReportRequest, *, request: Request, response: Respon
     """Queue a Task Summary PDF run for one head client and return 202 + a Location to poll."""
     webhook = req.resolved_webhook()
     if webhook:
-        validate_webhook_url(webhook)
+        power_automate.validate_webhook_url(webhook)
     elif not req.dry_run:
         raise HTTPException(
             status_code=400,
-            detail="No webhook configured. Set POWER_AUTOMATE_WEBHOOK_URL, pass "
-                   "webhook_url, or send dry_run=true to render without delivering.",
+            detail="No webhook configured. Set TASK_SUMMARY_WEBHOOK_URL (or "
+                   "POWER_AUTOMATE_WEBHOOK_URL), pass webhook_url, or send "
+                   "dry_run=true to render without delivering.",
         )
     if not req.dry_run and not (req.requestor_email or "").strip():
         raise HTTPException(

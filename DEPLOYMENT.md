@@ -76,6 +76,8 @@ Required — set by `scripts/configure-azure-sandbox.sh`:
 | `ZOHO_ACCOUNTS_URL` | |
 | `POWER_AUTOMATE_WEBHOOK_URL` | the `sig=` makes the whole URL sensitive |
 | `POWER_AUTOMATE_ALLOWED_HOSTS` | |
+| `TASK_SUMMARY_WEBHOOK_URL` | Task Summary posts a PDF attachment, not chart images, so it needs its own flow; falls back to `POWER_AUTOMATE_WEBHOOK_URL`. The `sig=` makes the whole URL sensitive |
+| `TASK_SUMMARY_ALLOWED_HOSTS` | falls back to `POWER_AUTOMATE_ALLOWED_HOSTS` |
 | `CORS_ALLOW_ORIGINS` | comma-separated |
 | `KEY_VAULT_URI` | switches the token store to Key Vault; **read at module import, so a restart is required** |
 | `ZOHO_TOKENS_SECRET_NAME` | defaults to `zoho-tokens` |

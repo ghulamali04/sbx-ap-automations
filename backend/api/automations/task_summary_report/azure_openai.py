@@ -7,7 +7,6 @@ from functools import lru_cache
 
 from azure.identity import (
     DefaultAzureCredential,
-    DeviceCodeCredential,
     get_bearer_token_provider,
 )
 from openai import AzureOpenAI, OpenAI
@@ -47,9 +46,15 @@ def is_configured() -> bool:
 
 @lru_cache(maxsize=1)
 def _credential():
-    if os.getenv("WEBSITE_HOSTNAME") or os.getenv("IDENTITY_ENDPOINT"):
-        return DefaultAzureCredential(exclude_interactive_browser_credential=True)
-    return DeviceCodeCredential()
+    # Report summaries run inside an unattended background job (the queue trigger
+    # in the cloud, an asyncio task locally), so an *interactive* credential must
+    # never be used — a device-code / browser prompt would block the job forever
+    # with no one to answer it, leaving the job stuck at "running" and no PDF.
+    # DefaultAzureCredential is non-interactive: in Azure it uses the Function
+    # App's managed identity; locally it picks up `az login` (AzureCliCredential),
+    # which is the documented local auth flow. If it can't get a token it fails
+    # fast and summarize_note degrades to no summary rather than hanging.
+    return DefaultAzureCredential(exclude_interactive_browser_credential=True)
 
 
 def _uses_foundry_v1() -> bool:
