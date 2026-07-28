@@ -13,7 +13,12 @@ def _allowed_hosts() -> list[str]:
     raw = os.getenv("TASK_SUMMARY_ALLOWED_HOSTS") or os.getenv(
         "POWER_AUTOMATE_ALLOWED_HOSTS", ""
     )
-    return [host.strip().lower() for host in raw.split(",") if host.strip()]
+    hosts = []
+    for value in raw.split(","):
+        value = value.strip().lower()
+        if value:
+            hosts.append(urlparse(f"//{value}").hostname or value)
+    return hosts
 
 
 def validate_webhook_url(url: str) -> None:
@@ -40,13 +45,12 @@ async def deliver_pdf(
     filename: str,
     pdf_bytes: bytes,
 ) -> None:
-    """POST the exact PDF/email payload required by the task-summary flow."""
+    """POST the exact PDF payload required by the task-summary flow."""
     encoded_pdf = base64.b64encode(pdf_bytes).decode("ascii")
     payload = {
         "filename": filename,
         "content_type": "application/pdf",
-        "pdf_b64": encoded_pdf,
-        "request_email": requestor_email,
+        "image_b64": [encoded_pdf],
     }
     async with httpx.AsyncClient(timeout=180) as client:
         resp = await client.post(webhook_url, json=payload)
