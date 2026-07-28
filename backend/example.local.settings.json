@@ -20,6 +20,18 @@
     "AZURE_OPENAI_API_VERSION": "2024-10-21",
     "AZURE_OPENAI_API_MODE": "auto",
     "SELECTED_COMMENTS_CONCURRENCY": "8",
-    "TERM_DEPOSIT_PROJECT_NAMES": "FP - Term Deposits"
+    "TERM_DEPOSIT_PROJECT_NAMES": "FP - Term Deposits",
+
+    "_comment_meeting_notes": "Meeting Notes automation (Teams transcripts -> Azure OpenAI -> Graph sendMail). GRAPH_* are the app registration with OnlineMeetingTranscript.Read.All, User.Read.All, GroupMember.Read.All and Mail.Send; leave blank in Azure to use the Function App managed identity instead.",
+    "GRAPH_TENANT_ID": "",
+    "GRAPH_CLIENT_ID": "",
+    "GRAPH_CLIENT_SECRET": "",
+    "MEETING_NOTES_NOTIFICATION_URL": "",
+    "MEETING_NOTES_LIFECYCLE_URL": "",
+    "MEETING_NOTES_CLIENT_STATE": "",
+    "MEETING_NOTES_MAIL_SENDER": "",
+    "MEETING_NOTES_DRY_RUN": "false",
+    "MEETING_NOTES_GLOSSARY": "",
+    "MEETING_NOTES_AREAS": ""
   }
 }

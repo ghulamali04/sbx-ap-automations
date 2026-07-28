@@ -45,6 +45,26 @@ def is_configured() -> bool:
     return bool(endpoint() and deployment_name())
 
 
+def _ensure_azure_cli_on_path() -> None:
+    """Make `az` findable when the Functions host launched us with a minimal PATH.
+
+    `func start` (especially when started from an IDE/GUI rather than a login
+    shell) can run the Python worker with a PATH that omits Homebrew's bin dir,
+    so AzureCliCredential reports "Azure CLI not found on path" even though
+    `az login` works fine in your terminal. Prepend the usual install locations
+    so the CLI credential can spawn `az`. No-op in Azure (the managed identity is
+    used there and these dirs don't exist).
+    """
+    import shutil
+
+    if shutil.which("az"):
+        return
+    for directory in ("/opt/homebrew/bin", "/usr/local/bin"):
+        if os.path.exists(os.path.join(directory, "az")):
+            os.environ["PATH"] = directory + os.pathsep + os.environ.get("PATH", "")
+            return
+
+
 @lru_cache(maxsize=1)
 def _credential():
     # Report summaries run inside an unattended background job (the queue trigger
@@ -55,6 +75,8 @@ def _credential():
     # App's managed identity; locally it picks up `az login` (AzureCliCredential),
     # which is the documented local auth flow. If it can't get a token it fails
     # fast and summarize_comments degrades to no summary rather than hanging.
+    if not (os.getenv("WEBSITE_HOSTNAME") or os.getenv("IDENTITY_ENDPOINT")):
+        _ensure_azure_cli_on_path()
     return DefaultAzureCredential(exclude_interactive_browser_credential=True)
 
 
@@ -81,14 +103,17 @@ def _client() -> OpenAI:
             base_url=endpoint(),
             api_key=authentication,
             timeout=30.0,
-            max_retries=0,
+            # Retry transient connection blips / 429s so one hiccup doesn't drop a
+            # task's summary. Each call already runs off-thread, so waiting is fine.
+            max_retries=2,
         )
 
     client_options = {
         "azure_endpoint": endpoint(),
         "api_version": api_version(),
         "timeout": 30.0,
-        "max_retries": 0,
+        # See above: absorb transient failures rather than losing the summary.
+        "max_retries": 2,
     }
     if api_key:
         client_options["api_key"] = api_key
