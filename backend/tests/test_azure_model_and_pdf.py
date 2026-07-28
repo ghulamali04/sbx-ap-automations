@@ -397,13 +397,13 @@ class PowerAutomateDeliveryTests(IsolatedAsyncioTestCase):
             )
 
         payload = http_client.post.await_args.kwargs["json"]
+        self.assertEqual(payload["request_email"], "requestor@example.test")
         self.assertEqual(payload["filename"], "snapshot.pdf")
         self.assertEqual(payload["content_type"], "application/pdf")
-        self.assertEqual(len(payload["image_b64"]), 1)
-        self.assertEqual(base64.b64decode(payload["image_b64"][0]), b"%PDF-test")
+        self.assertEqual(base64.b64decode(payload["pdf_b64"]), b"%PDF-test")
         self.assertEqual(
             set(payload),
-            {"filename", "content_type", "image_b64"},
+            {"filename", "content_type", "pdf_b64", "request_email"},
         )
 
 

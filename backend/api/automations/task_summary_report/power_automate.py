@@ -45,12 +45,13 @@ async def deliver_pdf(
     filename: str,
     pdf_bytes: bytes,
 ) -> None:
-    """POST the exact PDF payload required by the task-summary flow."""
+    """POST the exact PDF/email payload required by the task-summary flow."""
     encoded_pdf = base64.b64encode(pdf_bytes).decode("ascii")
     payload = {
         "filename": filename,
         "content_type": "application/pdf",
-        "image_b64": [encoded_pdf],
+        "pdf_b64": encoded_pdf,
+        "request_email": requestor_email,
     }
     async with httpx.AsyncClient(timeout=180) as client:
         resp = await client.post(webhook_url, json=payload)
