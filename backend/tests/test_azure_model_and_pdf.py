@@ -16,6 +16,7 @@ from api.automations.task_summary_report.pdf import (
     _SELECTED_COMMENTS_TITLE,
     _TASK_COLUMNS,
     _header_block,
+    _task_register_table,
     ReportData,
     TaskRow,
     render_task_summary_pdf,
@@ -165,6 +166,53 @@ class PdfRenderTests(TestCase):
         )
 
         self.assertFalse(rows[0].td_applicable)
+
+    def test_missing_values_render_as_blank_cells(self) -> None:
+        row = TaskRow(
+            project_name="BS - BAS",
+            task_name="Prepare BAS",
+            project_group="Business Services",
+            custom_status="In progress",
+            owner="_",
+            preparer="Not applicable",
+            cash_account="",
+            td_value=None,
+            td_term="",
+            provider="",
+            maturity_instruction="",
+            td_roa_reason="",
+            notes="",
+            td_applicable=False,
+        )
+        table = _task_register_table([row], 1_000)
+        body_text = [cell.getPlainText() for cell in table._cellvalues[1]]
+        self.assertNotIn("Not applicable", body_text)
+        self.assertNotIn("_", body_text)
+        self.assertEqual(body_text[3:], [""] * 9)
+
+    def test_owner_uses_complete_zoho_name(self) -> None:
+        rows = _build_rows(
+            [
+                (
+                    {
+                        "name": "Prepare BAS",
+                        "details": {
+                            "owners": [
+                                {
+                                    "name": "Alex",
+                                    "first_name": "Alex",
+                                    "last_name": "Morgan",
+                                    "full_name": "Alex Morgan",
+                                }
+                            ]
+                        },
+                    },
+                    {"name": "BS - BAS"},
+                )
+            ],
+            field_map(),
+        )
+        self.assertEqual(rows[0].owner, "Alex Morgan")
 
     def test_head_client_id_is_displayed_at_top(self) -> None:
         data = ReportData(

@@ -117,12 +117,35 @@ def _read_report_field(source: dict, field_name: str, *aliases: str):
 
 
 def _owner_name(task: dict, fields: dict) -> str:
+    owners = (task.get("details") or {}).get("owners") or []
+    if owners:
+        names = []
+        for owner in owners:
+            if isinstance(owner, dict):
+                combined_name = " ".join(
+                    part
+                    for part in (
+                        _display(owner.get("first_name")),
+                        _display(owner.get("last_name")),
+                    )
+                    if part
+                )
+                name = _display(
+                    _first_present(
+                        owner.get("full_name"),
+                        combined_name,
+                        owner.get("name"),
+                    )
+                )
+            else:
+                name = _display(owner)
+            if name and name not in names:
+                names.append(name)
+        if names:
+            return ", ".join(names)
     value = _read_report_field(task, fields["owner"])
     if value:
         return _display(value)
-    owners = (task.get("details") or {}).get("owners") or []
-    if owners:
-        return _display(owners[0])
     return _display(task.get("owner_name"))
 
 

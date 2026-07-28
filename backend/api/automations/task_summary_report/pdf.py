@@ -135,20 +135,26 @@ def _task_register_table(rows: list[TaskRow], page_width: float) -> Table:
         if band_on:
             band_cells.append(r_index)
 
-        not_applicable = "Not applicable"
         values = [
             row.project_name, row.task_name, row.custom_status,
             row.owner, row.preparer,
-            row.cash_account if row.td_applicable else not_applicable,
-            _fmt_money(row.td_value) if row.td_applicable else not_applicable,
-            row.td_term if row.td_applicable else not_applicable,
-            row.provider if row.td_applicable else not_applicable,
-            row.maturity_instruction if row.td_applicable else not_applicable,
-            row.td_roa_reason if row.td_applicable else not_applicable,
+            row.cash_account if row.td_applicable else "",
+            _fmt_money(row.td_value) if row.td_applicable else "",
+            row.td_term if row.td_applicable else "",
+            row.provider if row.td_applicable else "",
+            row.maturity_instruction if row.td_applicable else "",
+            row.td_roa_reason if row.td_applicable else "",
             row.notes,
         ]
         cells = []
         for c_index, value in enumerate(values):
+            if isinstance(value, str) and value.strip().casefold() in {
+                "_",
+                "-",
+                "n/a",
+                "not applicable",
+            }:
+                value = ""
             text = value if isinstance(value, str) else value
             if not text:
                 blank_cells.append((c_index, r_index))
