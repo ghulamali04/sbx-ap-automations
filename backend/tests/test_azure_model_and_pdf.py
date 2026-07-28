@@ -1,27 +1,60 @@
 from __future__ import annotations
 
 import base64
+from argparse import Namespace
 from datetime import datetime, timezone
+from pathlib import Path
 from unittest import IsolatedAsyncioTestCase, TestCase
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from azure.core.exceptions import ClientAuthenticationError
 from fastapi.testclient import TestClient
 
-from api.automations.task_summary_report import power_automate
+from api.automations.task_summary_report import azure_openai, power_automate
 from api.automations.task_summary_report.models import field_map
 from api.automations.task_summary_report.pdf import (
+    _SELECTED_COMMENTS_TITLE,
     _TASK_COLUMNS,
+    _header_block,
     ReportData,
     TaskRow,
     render_task_summary_pdf,
 )
 from api.automations.task_summary_report.service import (
     _build_rows,
-    _build_selected_notes,
+    _build_selected_comments,
     _infer_project_group,
+    _matches_head_client,
 )
+from api.scripts import generate_actual_task_summary
 from api.main import app
+
+
+def _term_deposit_task(
+    client_id: str,
+    *,
+    cash_value,
+    maturity_label: str,
+    maturity_value,
+) -> dict:
+    fields = field_map()
+    return {
+        "id": f"task-{client_id}",
+        "name": f"Term deposit review for client {client_id}",
+        "status": {"name": "In progress"},
+        "details": {"owners": [{"name": "Owner Name"}]},
+        "custom_fields": [
+            {"label_name": fields["head_client_id"], "value": client_id},
+            {"label_name": fields["preparer"], "value": "Accountant"},
+            {"label_name": fields["cash_account"], "value": cash_value},
+            {"label_name": fields["td_value"], "value": "$12,500"},
+            {"label_name": fields["td_term"], "value": "6 months"},
+            {"label_name": fields["provider"], "value": "Example Bank"},
+            {"label_name": maturity_label, "value": maturity_value},
+            {"label_name": fields["td_roa_reason"], "value": "Review"},
+            {"label_name": fields["notes"], "value": "<p>Internal task note.</p>"},
+        ],
+    }
 
 
 class AzureModelRouteTests(TestCase):
@@ -68,33 +101,62 @@ class PdfRenderTests(TestCase):
         self.assertEqual(_infer_project_group("BS - BAS"), "Business Services")
         self.assertEqual(_infer_project_group("Other Project"), "Uncategorized")
 
-    def test_task_fields_are_populated_from_zoho_custom_fields(self) -> None:
+    def test_term_deposit_fields_for_clients_101_53_and_3(self) -> None:
         fields = field_map()
-        task = {
-            "name": "Prepare BAS",
-            "status": {"name": "In progress"},
-            "details": {"owners": [{"name": "Owner Name"}]},
-            "custom_fields": [
-                {"label_name": fields["preparer"], "value": "Accountant"},
-                {"label_name": fields["cash_account"], "value": "Cash Hub"},
-                {"label_name": fields["td_value"], "value": "$12,500"},
-                {"label_name": fields["td_term"], "value": "6 months"},
-                {"label_name": fields["provider"], "value": "Example Bank"},
-                {"label_name": fields["maturity_instruction"], "value": "Renew"},
-                {"label_name": fields["td_roa_reason"], "value": "Review"},
-                {"label_name": fields["notes"], "value": "<p>Client approved renewal.</p>"},
-            ],
+        project = {"id": "td-project", "name": "FP - Term Deposits"}
+        fixtures = {
+            "101": (
+                _term_deposit_task(
+                    "101",
+                    cash_value={"display_value": "Macquarie CMA 101"},
+                    maturity_label="Maturity Instructions",
+                    maturity_value=[{"display_value": "Renew"}, {"display_value": "Review rate"}],
+                ),
+                "Macquarie CMA 101",
+                "Renew, Review rate",
+            ),
+            "53": (
+                _term_deposit_task(
+                    "53",
+                    cash_value="Cash Hub 53",
+                    maturity_label=fields["maturity_instruction"],
+                    maturity_value="Renew at maturity",
+                ),
+                "Cash Hub 53",
+                "Renew at maturity",
+            ),
+            "3": (
+                _term_deposit_task(
+                    "3",
+                    cash_value={"formatted_value": "CMA 3"},
+                    maturity_label="Maturity Instruction",
+                    maturity_value={"name": "Transfer to cash"},
+                ),
+                "CMA 3",
+                "Transfer to cash",
+            ),
         }
-        rows = _build_rows([(task, {"name": "FP - Term Deposits"})], fields)
 
-        self.assertEqual(len(rows), 1)
-        row = rows[0]
-        self.assertEqual(row.owner, "Owner Name")
-        self.assertEqual(row.custom_status, "In progress")
-        self.assertEqual(row.preparer, "Accountant")
-        self.assertEqual(row.td_value, 12_500)
-        self.assertEqual(row.notes, "Client approved renewal.")
-        self.assertTrue(row.td_applicable)
+        for client_id, (task, expected_cash, expected_maturity) in fixtures.items():
+            with self.subTest(head_client_id=client_id):
+                self.assertTrue(
+                    _matches_head_client(task, project, client_id, fields)
+                )
+                rows = _build_rows([(task, project)], fields)
+                self.assertEqual(len(rows), 1)
+                row = rows[0]
+                self.assertEqual(row.cash_account, expected_cash)
+                self.assertEqual(row.maturity_instruction, expected_maturity)
+                self.assertEqual(row.td_value, 12_500)
+                self.assertEqual(row.owner, "Owner Name")
+                self.assertTrue(row.td_applicable)
+                if client_id == "53":
+                    self.assertEqual(row.custom_status, "In progress")
+                    self.assertEqual(row.preparer, "Accountant")
+                    self.assertEqual(row.td_term, "6 months")
+                    self.assertEqual(row.provider, "Example Bank")
+                    self.assertEqual(row.td_roa_reason, "Review")
+                    self.assertEqual(row.notes, "Internal task note.")
 
     def test_term_deposit_fields_are_not_applicable_without_td_project(self) -> None:
         rows = _build_rows(
@@ -104,7 +166,25 @@ class PdfRenderTests(TestCase):
 
         self.assertFalse(rows[0].td_applicable)
 
-    def test_task_summary_renders_as_pdf(self) -> None:
+    def test_head_client_id_is_displayed_at_top(self) -> None:
+        data = ReportData(
+            title="Client Snapshot Report",
+            head_client_id="53",
+            tasks_total=0,
+            prepared_by="Advisory Partners",
+            as_at="28 July 2026",
+            rows=[],
+            selected_comments=[],
+        )
+
+        header_text = [paragraph.getPlainText() for paragraph in _header_block(data)]
+
+        self.assertEqual(header_text[2], "Head Client ID: 53")
+
+    def test_selected_section_is_named_task_comments(self) -> None:
+        self.assertEqual(_SELECTED_COMMENTS_TITLE, "Selected Task Comments")
+
+    def test_task_summary_renders_for_clients_101_53_and_3(self) -> None:
         row = TaskRow(
             project_name="FP - Reviews",
             task_name="Review term deposit",
@@ -120,48 +200,59 @@ class PdfRenderTests(TestCase):
             td_roa_reason="Review",
             notes="Client approved the proposed renewal.",
         )
-        data = ReportData(
-            title="Client Snapshot Report",
-            tasks_total=1,
-            prepared_by="Advisory Partners",
-            as_at="27 July 2026",
-            rows=[row],
-            selected_notes=[
-                (
-                    row.task_name,
-                    row.project_name,
-                    "The client approved renewing the term deposit.",
+        for client_id in ("101", "53", "3"):
+            with self.subTest(head_client_id=client_id):
+                data = ReportData(
+                    title="Client Snapshot Report",
+                    head_client_id=client_id,
+                    tasks_total=1,
+                    prepared_by="Advisory Partners",
+                    as_at="28 July 2026",
+                    rows=[row],
+                    selected_comments=[
+                        (
+                            row.task_name,
+                            row.project_name,
+                            "The client asked to renew the term deposit.",
+                        )
+                    ],
                 )
-            ],
-        )
 
-        pdf_bytes = render_task_summary_pdf(data)
+                pdf_bytes = render_task_summary_pdf(data)
 
-        self.assertTrue(pdf_bytes.startswith(b"%PDF-"))
-        self.assertGreater(len(pdf_bytes), 1_000)
+                self.assertTrue(pdf_bytes.startswith(b"%PDF-"))
+                self.assertGreater(len(pdf_bytes), 1_000)
 
 
-class SelectedNotesTests(IsolatedAsyncioTestCase):
-    async def test_recent_comment_qualifies_and_full_history_is_summarized(self) -> None:
+class SelectedCommentsTests(IsolatedAsyncioTestCase):
+    async def test_only_comments_from_past_180_days_are_summarized(self) -> None:
         now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
-        old_ms = now_ms - 120 * 24 * 60 * 60 * 1000
+        recent_ms = now_ms - 179 * 24 * 60 * 60 * 1000
+        old_ms = now_ms - 181 * 24 * 60 * 60 * 1000
         comments = [
             {
                 "created_time_long": old_ms,
                 "created_time": "01-01-2026",
                 "added_person": "Advisor",
-                "content": "Initial advice was prepared.",
+                "content": "This comment is outside the permitted window.",
             },
             {
-                "created_time_long": now_ms,
+                "created_time_long": recent_ms,
                 "created_time": "27-07-2026",
                 "added_person": "Advisor",
-                "content": "Client approved the advice.",
+                "content": "This comment is within the permitted window.",
             },
         ]
         matched = [
             (
-                {"id": "task-1", "name": "Advice task"},
+                {
+                    "id": "task-1",
+                    "name": "Advice task",
+                    "last_updated_time_long": now_ms,
+                    "custom_fields": [
+                        {"label_name": "Notes", "value": "Do not summarize this note."}
+                    ],
+                },
                 {"id": "project-1", "name": "FP - Advice"},
             )
         ]
@@ -173,16 +264,117 @@ class SelectedNotesTests(IsolatedAsyncioTestCase):
                 new=AsyncMock(return_value=comments),
             ),
             patch(
-                "api.automations.task_summary_report.service.azure_openai.summarize_note",
-                new=AsyncMock(return_value="The advice was prepared and approved."),
+                "api.automations.task_summary_report.service.azure_openai.summarize_comments",
+                new=AsyncMock(return_value="The recent comment was summarized."),
             ) as summarize,
         ):
-            selected = await _build_selected_notes(matched, rows)
+            selected = await _build_selected_comments(matched, rows)
 
         self.assertEqual(len(selected), 1)
         context = summarize.await_args.args[2]
-        self.assertIn("Initial advice was prepared.", context)
-        self.assertIn("Client approved the advice.", context)
+        self.assertIn("within the permitted window", context)
+        self.assertNotIn("outside the permitted window", context)
+        self.assertNotIn("Do not summarize this note", context)
+
+    async def test_comments_stay_attached_to_the_correct_sorted_task(self) -> None:
+        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+        matched = [
+            (
+                {"id": "fp-task", "name": "FP task"},
+                {"id": "fp-project", "name": "FP - Advice"},
+            ),
+            (
+                {"id": "bs-task", "name": "BS task"},
+                {"id": "bs-project", "name": "BS - Compliance"},
+            ),
+        ]
+        rows = _build_rows(matched, field_map())
+
+        async def comments_for_task(_project_id: str, task_id: str) -> list[dict]:
+            return [
+                {
+                    "created_time_long": now_ms,
+                    "content": f"Comment for {task_id}",
+                }
+            ]
+
+        async def summarize_for_task(
+            task_name: str,
+            _project_name: str,
+            comments: str,
+        ) -> str:
+            return f"{task_name}: {comments}"
+
+        with (
+            patch(
+                "api.automations.task_summary_report.service.client.get_task_comments",
+                new=AsyncMock(side_effect=comments_for_task),
+            ),
+            patch(
+                "api.automations.task_summary_report.service.azure_openai.summarize_comments",
+                new=AsyncMock(side_effect=summarize_for_task),
+            ),
+        ):
+            selected = await _build_selected_comments(matched, rows)
+
+        by_task = {task: summary for task, _project, summary in selected}
+        self.assertIn("Comment for bs-task", by_task["BS task"])
+        self.assertIn("Comment for fp-task", by_task["FP task"])
+
+    async def test_task_notes_or_activity_without_recent_comments_are_excluded(self) -> None:
+        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+        matched = [
+            (
+                {
+                    "id": "task-3",
+                    "name": "Client 3 task",
+                    "last_updated_time_long": now_ms,
+                    "custom_fields": [
+                        {"label_name": "Notes", "value": "Recent task note only."}
+                    ],
+                },
+                {"id": "project-3", "name": "FP - Advice"},
+            )
+        ]
+        rows = _build_rows(matched, field_map())
+
+        with (
+            patch(
+                "api.automations.task_summary_report.service.client.get_task_comments",
+                new=AsyncMock(return_value=[]),
+            ),
+            patch(
+                "api.automations.task_summary_report.service.azure_openai.summarize_comments",
+                new=AsyncMock(),
+            ) as summarize,
+        ):
+            selected = await _build_selected_comments(matched, rows)
+
+        self.assertEqual(selected, [])
+        summarize.assert_not_awaited()
+
+    async def test_ai_prompt_is_comments_only_with_no_weighting(self) -> None:
+        with patch(
+            "api.automations.task_summary_report.azure_openai._create_completion",
+            return_value="Summary",
+        ) as create_completion:
+            result = await azure_openai.summarize_comments(
+                "Task name",
+                "Project name",
+                "28-07-2026 - Advisor: Client requested renewal.",
+            )
+
+        self.assertEqual(result, "Summary")
+        messages = create_completion.call_args.args[0]
+        system_prompt = messages[0]["content"]
+        user_prompt = messages[1]["content"]
+        self.assertIn("past 180 days", system_prompt)
+        self.assertIn("Do not infer or summarise overall task activity", system_prompt)
+        self.assertIn("Do not weight", system_prompt)
+        self.assertNotIn("Task name", user_prompt)
+        self.assertNotIn("Project name", user_prompt)
+        self.assertNotIn("Notes:", user_prompt)
+        self.assertIn("Client requested renewal.", user_prompt)
 
 
 class PowerAutomateDeliveryTests(IsolatedAsyncioTestCase):
@@ -205,9 +397,82 @@ class PowerAutomateDeliveryTests(IsolatedAsyncioTestCase):
             )
 
         payload = http_client.post.await_args.kwargs["json"]
-        self.assertEqual(payload["requestor_email"], "requestor@example.test")
+        self.assertEqual(payload["request_email"], "requestor@example.test")
         self.assertEqual(payload["filename"], "snapshot.pdf")
-        self.assertEqual(
-            base64.b64decode(payload["attachments"][0]["contentBytes"]),
-            b"%PDF-test",
+        self.assertEqual(payload["content_type"], "application/pdf")
+        self.assertEqual(base64.b64decode(payload["pdf_b64"]), b"%PDF-test")
+
+
+class LiveReportScriptTests(IsolatedAsyncioTestCase):
+    async def test_live_script_uses_standard_renderer_azure_summary_and_email(self) -> None:
+        task = _term_deposit_task(
+            "53",
+            cash_value="Cash Hub 53",
+            maturity_label="Maturity Instructions",
+            maturity_value="Renew",
         )
+        project = {"id": "td-project", "name": "FP - Term Deposits"}
+        args = Namespace(
+            head_client_id="53",
+            requestor_email="requestor@example.test",
+            webhook_url="https://flow.example.test/report",
+            output=Path("output/pdf/live-client-53.pdf"),
+            active_only=False,
+        )
+        rendered_pdf = b"%PDF-live-report"
+
+        with (
+            patch.object(
+                generate_actual_task_summary,
+                "resolve_matching_tasks",
+                new=AsyncMock(return_value=([(task, project)], 8)),
+            ),
+            patch.object(
+                generate_actual_task_summary,
+                "_build_selected_comments",
+                new=AsyncMock(
+                    return_value=[
+                        (
+                            task["name"],
+                            project["name"],
+                            "The client requested renewal.",
+                        )
+                    ]
+                ),
+            ) as build_comments,
+            patch.object(
+                generate_actual_task_summary,
+                "render_task_summary_pdf",
+                return_value=rendered_pdf,
+            ) as render_pdf,
+            patch.object(Path, "mkdir"),
+            patch.object(Path, "write_bytes", return_value=len(rendered_pdf)) as write_pdf,
+            patch.object(
+                generate_actual_task_summary.power_automate,
+                "validate_webhook_url",
+            ) as validate_webhook,
+            patch.object(
+                generate_actual_task_summary.power_automate,
+                "deliver_pdf",
+                new=AsyncMock(),
+            ) as deliver_pdf,
+        ):
+            output = await generate_actual_task_summary.generate_live_report(args)
+
+        report = render_pdf.call_args.args[0]
+        self.assertEqual(report.title, "Client Snapshot Report")
+        self.assertEqual(report.head_client_id, "53")
+        self.assertEqual(
+            report.selected_comments[0][2],
+            "The client requested renewal.",
+        )
+        build_comments.assert_awaited_once()
+        write_pdf.assert_called_once_with(rendered_pdf)
+        validate_webhook.assert_called_once_with(args.webhook_url)
+        deliver_pdf.assert_awaited_once()
+        self.assertEqual(
+            deliver_pdf.await_args.kwargs["requestor_email"],
+            args.requestor_email,
+        )
+        self.assertEqual(deliver_pdf.await_args.kwargs["pdf_bytes"], rendered_pdf)
+        self.assertEqual(output.name, "live-client-53.pdf")

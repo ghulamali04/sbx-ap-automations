@@ -48,9 +48,8 @@ async def azure_model_test():
         raise HTTPException(
             status_code=401,
             detail=(
-                "Azure sign-in was not completed. Request this endpoint once, "
-                "then immediately authenticate using the latest device code "
-                "shown in the terminal."
+                "Azure authentication failed. Sign in locally with `az login`, "
+                "or verify the Function App managed identity permissions."
             ),
         ) from exc
     except Exception as exc:  # noqa: BLE001 - convert provider failures into an API response

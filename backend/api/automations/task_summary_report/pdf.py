@@ -29,6 +29,7 @@ _HEAD = ParagraphStyle("head", fontName="Helvetica-Bold", fontSize=7.5, leading=
 _SECTION_HEAD = ParagraphStyle(
     "sectionHead", fontName="Helvetica-Bold", fontSize=10.5, textColor=_TEAL_TEXT, spaceAfter=4,
 )
+_SELECTED_COMMENTS_TITLE = "Selected Task Comments"
 
 
 @dataclass
@@ -52,11 +53,12 @@ class TaskRow:
 @dataclass
 class ReportData:
     title: str
+    head_client_id: str
     tasks_total: int
     prepared_by: str
     as_at: str
     rows: list[TaskRow]
-    selected_notes: list[tuple[str, str, str]]  # (task, project, ai_summary)
+    selected_comments: list[tuple[str, str, str]]  # (task, project, ai_summary)
 
 
 def _fmt_money(value: float | None) -> str:
@@ -69,8 +71,8 @@ def _p(text: str | None, style: ParagraphStyle = _CELL) -> Paragraph:
 
 def _header_block(data: ReportData) -> list:
     subtitle = (
-        f"{data.tasks_total} tasks &nbsp;·&nbsp; "
-        f"Prepared by {escape(data.prepared_by)} &nbsp;·&nbsp; As at {escape(data.as_at)}"
+        f"{data.tasks_total} tasks &nbsp;&#183;&nbsp; "
+        f"Prepared by {escape(data.prepared_by)} &nbsp;&#183;&nbsp; As at {escape(data.as_at)}"
     )
     return [
         Paragraph("ADVISORY PARTNERS", ParagraphStyle(
@@ -79,6 +81,17 @@ def _header_block(data: ReportData) -> list:
         Paragraph(escape(data.title), ParagraphStyle(
             "title", fontName="Helvetica-Bold", fontSize=17, leading=21, textColor=_INK, spaceAfter=6,
         )),
+        Paragraph(
+            f"<b>Head Client ID:</b> {escape(data.head_client_id)}",
+            ParagraphStyle(
+                "headClientId",
+                fontName="Helvetica",
+                fontSize=10,
+                leading=13,
+                textColor=_INK,
+                spaceAfter=4,
+            ),
+        ),
         Paragraph(subtitle, ParagraphStyle(
             "subtitle", fontName="Helvetica-Oblique", fontSize=9, leading=13, textColor=_MUTED, spaceAfter=12,
         )),
@@ -160,13 +173,16 @@ def _task_register_table(rows: list[TaskRow], page_width: float) -> Table:
     return t
 
 
-def _selected_notes_table(notes: list[tuple[str, str, str]], page_width: float) -> Table:
+def _selected_comments_table(
+    comments: list[tuple[str, str, str]],
+    page_width: float,
+) -> Table:
     task_w = int(page_width * 0.22)
     project_w = int(page_width * 0.16)
     note_w = int(page_width - task_w - project_w)
     body = [[_p("Task", _HEAD), _p("Project", _HEAD), _p("Summary", _HEAD)]]
-    for i, (task, project, note) in enumerate(notes):
-        body.append([_p(task), _p(project), _p(note)])
+    for task, project, summary in comments:
+        body.append([_p(task), _p(project), _p(summary)])
     t = Table(body, colWidths=[task_w, project_w, note_w], repeatRows=1, hAlign="LEFT")
     style = [
         ("BACKGROUND", (0, 0), (-1, 0), _TEAL),
@@ -201,9 +217,9 @@ def render_task_summary_pdf(data: ReportData) -> bytes:
     story.append(_task_register_table(data.rows, usable_width))
     story.append(Spacer(1, 16))
 
-    if data.selected_notes:
-        story.append(Paragraph("Selected task notes", _SECTION_HEAD))
-        story.append(_selected_notes_table(data.selected_notes, usable_width))
+    if data.selected_comments:
+        story.append(Paragraph(_SELECTED_COMMENTS_TITLE, _SECTION_HEAD))
+        story.append(_selected_comments_table(data.selected_comments, usable_width))
 
     doc.build(story)
     return buf.getvalue()

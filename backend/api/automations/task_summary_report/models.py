@@ -45,8 +45,8 @@ class ReportRequest(BaseModel):
     )
     webhook_url: str | None = Field(
         default=None,
-        description="Power Automate flow to POST the PDF to. "
-                    "Falls back to POWER_AUTOMATE_WEBHOOK_URL.",
+        description="Power Automate flow to POST the PDF to. Falls back to "
+                    "TASK_SUMMARY_WEBHOOK_URL, then POWER_AUTOMATE_WEBHOOK_URL.",
     )
     filename: str | None = Field(
         default=None,
@@ -58,7 +58,12 @@ class ReportRequest(BaseModel):
     )
 
     def resolved_webhook(self) -> str | None:
-        return self.webhook_url or os.getenv("POWER_AUTOMATE_WEBHOOK_URL") or None
+        return (
+            self.webhook_url
+            or os.getenv("TASK_SUMMARY_WEBHOOK_URL")
+            or os.getenv("POWER_AUTOMATE_WEBHOOK_URL")
+            or None
+        )
 
     def resolved_filename(self) -> str:
         return self.filename or f"task-summary-{self.head_client_id}-{date.today().isoformat()}.pdf"

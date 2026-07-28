@@ -86,7 +86,7 @@ def main() -> None:
             "Quarterly source documents are being collected.",
         ),
     ]
-    summaries = [
+    comment_summaries = [
         (
             rows[0].task_name,
             rows[0].project_name,
@@ -105,11 +105,12 @@ def main() -> None:
     ]
     report = ReportData(
         title="Client Snapshot Report - Sample",
+        head_client_id="53",
         tasks_total=len(rows),
         prepared_by="Advisory Partners",
         as_at="27 July 2026",
         rows=rows,
-        selected_notes=summaries,
+        selected_comments=comment_summaries,
     )
 
     output_dir = _REPOSITORY_ROOT / "output" / "pdf"

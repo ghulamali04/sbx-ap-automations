@@ -7,7 +7,6 @@ from functools import lru_cache
 
 from azure.identity import (
     DefaultAzureCredential,
-    DeviceCodeCredential,
     get_bearer_token_provider,
 )
 from openai import AzureOpenAI, OpenAI
@@ -21,10 +20,11 @@ _AZURE_OPENAI_TOKEN_SCOPE = "https://cognitiveservices.azure.com/.default"
 _LOG = logging.getLogger(__name__)
 
 _SYSTEM_PROMPT = (
-    "You summarise financial-advisory task notes for a client-facing report. "
-    "Write two or three concise, plain-English sentences explaining what has "
-    "happened and where the work currently stands. Weight recent activity most "
-    "heavily. Use no heading, preamble, quotes, or markdown."
+    "Summarise only the task comments supplied by the user. Every supplied "
+    "comment is from the past 180 days. Do not infer or summarise overall task "
+    "activity, status, progress, notes, or other task data. Do not weight or "
+    "prioritise comments by date or any other factor. Write two or three concise "
+    "plain-English sentences with no heading, preamble, quotes, or markdown."
 )
 
 
@@ -47,9 +47,15 @@ def is_configured() -> bool:
 
 @lru_cache(maxsize=1)
 def _credential():
-    if os.getenv("WEBSITE_HOSTNAME") or os.getenv("IDENTITY_ENDPOINT"):
-        return DefaultAzureCredential(exclude_interactive_browser_credential=True)
-    return DeviceCodeCredential()
+    # Report summaries run inside an unattended background job (the queue trigger
+    # in the cloud, an asyncio task locally), so an *interactive* credential must
+    # never be used — a device-code / browser prompt would block the job forever
+    # with no one to answer it, leaving the job stuck at "running" and no PDF.
+    # DefaultAzureCredential is non-interactive: in Azure it uses the Function
+    # App's managed identity; locally it picks up `az login` (AzureCliCredential),
+    # which is the documented local auth flow. If it can't get a token it fails
+    # fast and summarize_comments degrades to no summary rather than hanging.
+    return DefaultAzureCredential(exclude_interactive_browser_credential=True)
 
 
 def _uses_foundry_v1() -> bool:
@@ -114,20 +120,24 @@ async def test_model() -> str:
     )
 
 
-async def summarize_note(task_name: str, project_name: str, notes: str) -> str | None:
-    """Return a one-line summary, or None so a model failure cannot stop the PDF."""
-    if not is_configured() or not notes.strip():
+async def summarize_comments(
+    task_name: str,
+    project_name: str,
+    comments: str,
+) -> str | None:
+    """Summarise filtered 180-day comments without blocking PDF generation."""
+    if not is_configured() or not comments.strip():
         return None
 
     messages = [
         {"role": "system", "content": _SYSTEM_PROMPT},
         {
             "role": "user",
-            "content": f"Task: {task_name}\nProject: {project_name}\nNotes: {notes}",
+            "content": f"Task comments from the past 180 days:\n{comments}",
         },
     ]
     try:
-        return await asyncio.to_thread(_create_completion, messages, 80) or None
+        return await asyncio.to_thread(_create_completion, messages, 120) or None
     except Exception as exc:  # noqa: BLE001 - PDF generation degrades gracefully
         _LOG.warning(
             "Azure OpenAI summary failed for task %r in project %r: %s",

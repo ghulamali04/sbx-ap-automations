@@ -7,7 +7,6 @@ import re
 from datetime import datetime, timedelta, timezone
 
 from api.automations.zoho import client
-from api.automations.completion_overview.service import read_task_field
 from api.automations.task_summary_report import artifacts, azure_openai, power_automate
 from api.automations.task_summary_report.models import JobResult, ReportRequest, field_map
 from api.automations.task_summary_report.pdf import ReportData, TaskRow, render_task_summary_pdf
@@ -29,11 +28,24 @@ _PROJECT_GROUP_PREFIXES = {
 # ---------- value helpers ----------
 
 def _display(value) -> str:
-    """Normalise any Zoho field value (str, dict, None) to a display string."""
+    """Normalise scalar and structured Zoho field values to display text."""
     if value is None:
         return ""
+    if isinstance(value, (list, tuple, set)):
+        return ", ".join(part for item in value if (part := _display(item)))
     if isinstance(value, dict):
-        value = value.get("name") or value.get("full_name") or value.get("value") or ""
+        for key in (
+            "display_value",
+            "formatted_value",
+            "name",
+            "full_name",
+            "label",
+            "text",
+            "value",
+        ):
+            if key in value and value[key] not in (None, ""):
+                return _display(value[key])
+        return ""
     return str(value).strip()
 
 
@@ -42,7 +54,7 @@ def _to_float(value) -> float | None:
         return None
     if isinstance(value, (int, float)):
         return float(value)
-    s = re.sub(r"[^0-9.\-]", "", str(value))
+    s = re.sub(r"[^0-9.\-]", "", _display(value))
     try:
         return float(s) if s not in ("", "-", ".") else None
     except ValueError:
@@ -63,8 +75,49 @@ def _first_present(*values):
     return None
 
 
+def _normalise_field_name(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", value.casefold())
+
+
+def _read_report_field(source: dict, field_name: str, *aliases: str):
+    """Read a report field across Zoho's label and structured-value variants."""
+    targets = {
+        _normalise_field_name(name)
+        for name in (field_name, *aliases)
+        if name
+    }
+    for key, value in source.items():
+        if _normalise_field_name(str(key)) in targets:
+            return value
+
+    for custom_field in source.get("custom_fields", []) or []:
+        if not isinstance(custom_field, dict):
+            continue
+        labels = (
+            custom_field.get("label_name"),
+            custom_field.get("display_name"),
+            custom_field.get("field_name"),
+            custom_field.get("column_name"),
+        )
+        if any(
+            _normalise_field_name(str(label)) in targets
+            for label in labels
+            if label
+        ):
+            return _first_present(
+                custom_field.get("value"),
+                custom_field.get("display_value"),
+                custom_field.get("formatted_value"),
+                custom_field.get("actual_value"),
+            )
+        for key, value in custom_field.items():
+            if _normalise_field_name(str(key)) in targets:
+                return value
+    return None
+
+
 def _owner_name(task: dict, fields: dict) -> str:
-    value = read_task_field(task, fields["owner"])
+    value = _read_report_field(task, fields["owner"])
     if value:
         return _display(value)
     owners = (task.get("details") or {}).get("owners") or []
@@ -74,7 +127,7 @@ def _owner_name(task: dict, fields: dict) -> str:
 
 
 def _status_name(task: dict, fields: dict) -> str:
-    value = read_task_field(task, fields["custom_status"])
+    value = _read_report_field(task, fields["custom_status"])
     if value:
         return _display(value)
     return _display(task.get("status")) or "Not started"
@@ -99,9 +152,14 @@ def _is_term_deposit_project(project_name: str) -> bool:
 # ---------- head-client matching ----------
 
 def _field_value(source: dict, key: str):
-    value = read_task_field(source, key)
+    value = _read_report_field(source, key)
     if isinstance(value, dict):
-        value = value.get("id") or value.get("value") or value.get("name")
+        value = (
+            value.get("id")
+            or value.get("value")
+            or value.get("display_value")
+            or value.get("name")
+        )
     return value
 
 
@@ -134,6 +192,16 @@ async def resolve_matching_tasks(
 
 # ---------- row building ----------
 
+def _matched_sort_key(item: tuple[dict, dict]) -> tuple[str, str, str]:
+    task, project = item
+    project_name = _display(project.get("name"))
+    return (
+        _infer_project_group(project_name).casefold(),
+        project_name.casefold(),
+        _display(task.get("name")).casefold(),
+    )
+
+
 def _build_rows(matched: list[tuple[dict, dict]], fields: dict) -> list[TaskRow]:
     rows = []
     has_term_deposit_task = any(
@@ -148,15 +216,32 @@ def _build_rows(matched: list[tuple[dict, dict]], fields: dict) -> list[TaskRow]
             project_group=_infer_project_group(project_name),
             custom_status=_status_name(task, fields),
             owner=_owner_name(task, fields),
-            preparer=_display(read_task_field(task, fields["preparer"])),
-            cash_account=_display(read_task_field(task, fields["cash_account"])),
-            td_value=_to_float(read_task_field(task, fields["td_value"])),
-            td_term=_display(read_task_field(task, fields["td_term"])),
-            provider=_display(read_task_field(task, fields["provider"])),
-            maturity_instruction=_display(read_task_field(task, fields["maturity_instruction"])),
-            td_roa_reason=_display(read_task_field(task, fields["td_roa_reason"])),
+            preparer=_display(_read_report_field(task, fields["preparer"])),
+            cash_account=_display(
+                _read_report_field(
+                    task,
+                    fields["cash_account"],
+                    "Cash Accounts",
+                    "Cash Management Account",
+                )
+            ),
+            td_value=_to_float(_read_report_field(task, fields["td_value"])),
+            td_term=_display(_read_report_field(task, fields["td_term"])),
+            provider=_display(_read_report_field(task, fields["provider"])),
+            maturity_instruction=_display(
+                _read_report_field(
+                    task,
+                    fields["maturity_instruction"],
+                    "Maturity Instruction",
+                    "Maturity Instructions",
+                )
+            ),
+            td_roa_reason=_display(_read_report_field(task, fields["td_roa_reason"])),
             notes=_strip_html(
-                _first_present(read_task_field(task, fields["notes"]), task.get("description"))
+                _first_present(
+                    _read_report_field(task, fields["notes"]),
+                    task.get("description"),
+                )
             ),
             td_applicable=has_term_deposit_task,
         ))
@@ -173,7 +258,8 @@ def _build_rows(matched: list[tuple[dict, dict]], fields: dict) -> list[TaskRow]
 def _resolve_head_client_name(matched: list[tuple[dict, dict]], fields: dict, head_client_id: str) -> str:
     for task, project in matched:
         name = _display(_first_present(
-            read_task_field(task, fields["head_client"]), read_task_field(project, fields["head_client"])
+            _read_report_field(task, fields["head_client"]),
+            _read_report_field(project, fields["head_client"]),
         ))
         if name:
             return name
@@ -185,29 +271,13 @@ def _today_display() -> str:
     return f"{today.day} {today.strftime('%B %Y')}"
 
 
-# ---------- Selected Task Notes (Azure OpenAI) ----------
+# ---------- Selected Task Comments (Azure OpenAI) ----------
 
-def _last_activity_ms(task: dict) -> int | None:
-    for key in ("last_updated_time_long", "updated_date_long", "created_date_long", "created_time_long"):
-        value = task.get(key)
-        if value:
-            try:
-                return int(value)
-            except (TypeError, ValueError):
-                continue
-    return None
+_SELECTED_COMMENTS_DAYS = 180
 
 
-def _selected_notes_cutoff_ms() -> int:
-    configured_days = os.getenv("SELECTED_NOTES_DAYS")
-    if configured_days is not None:
-        days = int(configured_days)
-    else:
-        # Keep the old setting as a compatibility fallback, but align the
-        # default with the approved 60-day inclusion rule.
-        configured_months = os.getenv("SELECTED_NOTES_MONTHS")
-        days = 30 * int(configured_months) if configured_months else 60
-    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+def _selected_comments_cutoff_ms() -> int:
+    cutoff = datetime.now(timezone.utc) - timedelta(days=_SELECTED_COMMENTS_DAYS)
     return int(cutoff.timestamp() * 1000)
 
 
@@ -240,11 +310,11 @@ def _comment_context(comments: list[dict]) -> str:
     return "\n".join(history)
 
 
-async def _build_selected_notes(
+async def _build_selected_comments(
     matched: list[tuple[dict, dict]], rows: list[TaskRow]
 ) -> list[tuple[str, str, str]]:
-    cutoff_ms = _selected_notes_cutoff_ms()
-    concurrency = max(1, int(os.getenv("SELECTED_NOTES_CONCURRENCY", "8")))
+    cutoff_ms = _selected_comments_cutoff_ms()
+    concurrency = max(1, int(os.getenv("SELECTED_COMMENTS_CONCURRENCY", "8")))
     semaphore = asyncio.Semaphore(concurrency)
 
     async def summarize_one(
@@ -259,39 +329,35 @@ async def _build_selected_notes(
             try:
                 async with semaphore:
                     comments = await client.get_task_comments(project_id, task_id)
-            except Exception:  # noqa: BLE001 - Notes still provide a safe fallback
+            except Exception:  # noqa: BLE001 - omit comments if Zoho cannot return them
                 comments = []
 
-        has_recent_comment = any(
-            timestamp is not None and timestamp >= cutoff_ms
-            for timestamp in (_comment_time_ms(comment) for comment in comments)
-        )
-        task_activity = _last_activity_ms(task)
-        has_recent_notes_field = bool(
-            row.notes
-            and (task_activity is None or task_activity >= cutoff_ms)
-        )
-        if not has_recent_comment and not has_recent_notes_field:
+        recent_comments = [
+            comment
+            for comment in comments
+            if (timestamp := _comment_time_ms(comment)) is not None
+            and timestamp >= cutoff_ms
+        ]
+        if not recent_comments:
             return None
 
-        context_parts = []
-        if row.notes:
-            context_parts.append(f"Task Notes:\n{row.notes}")
-        comment_history = _comment_context(comments)
-        if comment_history:
-            context_parts.append(f"Comment History:\n{comment_history}")
-        context = "\n\n".join(context_parts)
-        summary = await azure_openai.summarize_note(
+        comment_history = _comment_context(recent_comments)
+        if not comment_history:
+            return None
+        summary = await azure_openai.summarize_comments(
             row.task_name,
             row.project_name,
-            context,
+            comment_history,
         )
         return row.task_name, row.project_name, summary or ""
 
     selected = await asyncio.gather(
         *[
             summarize_one(task, project, row)
-            for (task, project), row in zip(matched, rows)
+            for (task, project), row in zip(
+                sorted(matched, key=_matched_sort_key),
+                rows,
+            )
         ]
     )
     return [note for note in selected if note is not None]
@@ -319,15 +385,16 @@ async def run_report(req: ReportRequest, job_id: str = "") -> JobResult:
 
     rows = _build_rows(matched, fields)
     result.head_client_name = _resolve_head_client_name(matched, fields, req.head_client_id)
-    selected_notes = await _build_selected_notes(matched, rows)
+    selected_comments = await _build_selected_comments(matched, rows)
 
     data = ReportData(
         title=REPORT_TITLE,
+        head_client_id=req.head_client_id,
         tasks_total=len(rows),
         prepared_by="Advisory Partners",
         as_at=_today_display(),
         rows=rows,
-        selected_notes=selected_notes,
+        selected_comments=selected_comments,
     )
 
     try:
