@@ -16,6 +16,7 @@ from api.settings import load_local_settings  # noqa: E402
 load_local_settings()
 
 from api.automations.task_summary_report import power_automate  # noqa: E402
+from api.automations.email_recipients import normalize_email_recipients  # noqa: E402
 from api.automations.task_summary_report.models import ReportRequest, field_map  # noqa: E402
 from api.automations.task_summary_report.pdf import (  # noqa: E402
     ReportData,
@@ -40,7 +41,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("head_client_id", help="Head Client ID to report on.")
     parser.add_argument(
         "--requestor-email",
-        help="If supplied, send the generated PDF through the configured flow.",
+        action="append",
+        help="Recipient email. Repeat this option to send to multiple recipients.",
     )
     parser.add_argument(
         "--webhook-url",
@@ -63,12 +65,13 @@ def _parse_args() -> argparse.Namespace:
 
 
 async def generate_live_report(args: argparse.Namespace) -> Path:
+    request_emails = normalize_email_recipients(args.requestor_email)
     request = ReportRequest(
         head_client_id=args.head_client_id,
         active_only=args.active_only,
-        requestor_email=args.requestor_email,
+        request_emails=request_emails,
         webhook_url=args.webhook_url,
-        dry_run=not bool(args.requestor_email),
+        dry_run=not bool(request_emails),
     )
     fields = field_map()
     matched, projects_scanned = await resolve_matching_tasks(request, fields)
@@ -99,7 +102,7 @@ async def generate_live_report(args: argparse.Namespace) -> Path:
     output_file.parent.mkdir(parents=True, exist_ok=True)
     output_file.write_bytes(pdf_bytes)
 
-    if args.requestor_email:
+    if request_emails:
         webhook = request.resolved_webhook()
         if not webhook:
             raise RuntimeError(
@@ -108,7 +111,7 @@ async def generate_live_report(args: argparse.Namespace) -> Path:
         power_automate.validate_webhook_url(webhook)
         await power_automate.deliver_pdf(
             webhook,
-            requestor_email=args.requestor_email,
+            request_emails=request_emails,
             filename=output_file.name,
             pdf_bytes=pdf_bytes,
         )
@@ -118,8 +121,8 @@ async def generate_live_report(args: argparse.Namespace) -> Path:
         f"Generated {output_file} for Head Client ID {args.head_client_id!r}: "
         f"{len(rows)} tasks, {summaries_generated} Azure comment summaries."
     )
-    if args.requestor_email:
-        print(f"Sent PDF to {args.requestor_email} through Power Automate.")
+    if request_emails:
+        print(f"Sent PDF for {', '.join(request_emails)} through Power Automate.")
     return output_file
 
 

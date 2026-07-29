@@ -5,16 +5,21 @@ The contract stays generic (spec §6.7) — metric field, groupings and destinat
 can all be overridden per call — but every one of those has a sensible default, so
 the common case is a body as small as:
 
-    {"projects_include": ["123"], "projects_excluded": []}
+    {"projects_include_IDs": ["123"]}
 
-or even `{}`, which selects the latest BAS and IAS projects automatically.
+or a keyword-driven selection:
+
+    {"projects_include_Names": ["BAS"], "projects_exclude_Names": ["Overdue"]}
 """
 from __future__ import annotations
 
+import json
 import os
 from datetime import date
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from api.automations.email_recipients import normalize_email_recipients
 
 
 def default_group_by() -> list[str]:
@@ -26,23 +31,41 @@ def default_group_by() -> list[str]:
 class ReportRequest(BaseModel):
     """Payload from the calling flow.
 
-    Project selection:
-      - `projects_include` given -> use exactly those ids.
-      - otherwise              -> match `name_filters` and take the latest month
-                                  available for each (e.g. the newest BAS and the
-                                  newest IAS).
-    `projects_excluded` is always applied last, so it can drop an id that either
-    path selected.
+    Project selection runs as include-then-exclude:
+      - `projects_include_IDs` non-empty -> use exactly those ids, and
+        `projects_include_Names` is ignored entirely.
+      - otherwise `projects_include_Names` -> every project whose name contains any
+        of the keywords (case-insensitive substring match).
+      - neither -> every project.
+    Then:
+      - drop every id in `projects_exclude_IDs`.
+      - drop every project whose name contains a keyword in
+        `projects_exclude_Names`.
+
+    At least one include or exclude filter must be non-empty; see
+    `validate_selection`.
     """
-    projects_include: list[str] = Field(
+    projects_include_IDs: list[str] = Field(
         default_factory=list, description="Explicit Zoho project ids to report on."
     )
-    projects_excluded: list[str] = Field(
+    projects_exclude_IDs: list[str] = Field(
         default_factory=list, description="Zoho project ids to drop from the selection."
     )
-    name_filters: list[str] = Field(
-        default_factory=lambda: ["BAS", "IAS"],
-        description="Project-name substrings used when projects_include is empty.",
+    projects_include_Names: list[str] = Field(
+        default_factory=list,
+        description="Project-name keywords (e.g. 'BAS', 'July'). Every project whose "
+                    "name contains one of these is included. Ignored when "
+                    "projects_include_IDs is non-empty.",
+    )
+    projects_exclude_Names: list[str] = Field(
+        default_factory=list,
+        description="Project-name keywords (e.g. 'Overdue'). Every project whose name "
+                    "contains one of these is dropped, in addition to exclusions by id.",
+    )
+    projects_include_Emails: list[str] = Field(
+        default_factory=list,
+        description="One or more recipients received from Power Automate and "
+                    "returned with the generated report artifacts.",
     )
     active_only: bool = Field(
         default=True, description="Only include projects Zoho marks active."
@@ -57,7 +80,8 @@ class ReportRequest(BaseModel):
     webhook_url: str | None = Field(
         default=None,
         description="Power Automate flow to POST the charts to. "
-                    "Falls back to POWER_AUTOMATE_WEBHOOK_URL.",
+                    "Falls back to COMPLETION_OVERVIEW_WEBHOOK_URL, then "
+                    "POWER_AUTOMATE_WEBHOOK_URL.",
     )
     filename: str | None = Field(
         default=None,
@@ -67,8 +91,69 @@ class ReportRequest(BaseModel):
         default=False, description="Render charts but skip delivery."
     )
 
+    @field_validator("projects_include_Emails", mode="before")
+    @classmethod
+    def normalize_project_emails(cls, value) -> list[str]:
+        return normalize_email_recipients(value)
+
+    @field_validator(
+        "projects_include_IDs",
+        "projects_exclude_IDs",
+        "projects_include_Names",
+        "projects_exclude_Names",
+        mode="before",
+    )
+    @classmethod
+    def normalize_project_filters(cls, value) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            stripped = value.strip()
+            if stripped.startswith("[") and stripped.endswith("]"):
+                try:
+                    decoded = json.loads(stripped)
+                except json.JSONDecodeError:
+                    decoded = value
+                if isinstance(decoded, list):
+                    value = decoded
+        values = [value] if isinstance(value, str) else value
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for item in values:
+            text = str(item).strip()
+            key = text.casefold()
+            if text and key not in seen:
+                seen.add(key)
+                normalized.append(text)
+        return normalized
+
+    def validate_selection(self) -> str | None:
+        """Return an error message when the body cannot select anything to report on.
+
+        A run needs at least one include or exclude filter so an accidental empty
+        body cannot report every project in the portal.
+        """
+        if (
+            self.projects_include_IDs
+            or self.projects_exclude_IDs
+            or self.projects_include_Names
+            or self.projects_exclude_Names
+        ):
+            return None
+        return (
+            "Provide projects_include_IDs (explicit project ids), "
+            "projects_include_Names (name keywords to include), or "
+            "projects_exclude_IDs/projects_exclude_Names (projects to exclude) "
+            "to generate a report."
+        )
+
     def resolved_webhook(self) -> str | None:
-        return self.webhook_url or os.getenv("POWER_AUTOMATE_WEBHOOK_URL") or None
+        return (
+            self.webhook_url
+            or os.getenv("COMPLETION_OVERVIEW_WEBHOOK_URL")
+            or os.getenv("POWER_AUTOMATE_WEBHOOK_URL")
+            or None
+        )
 
     def resolved_filename(self) -> str:
         return self.filename or f"report-{date.today().isoformat()}"

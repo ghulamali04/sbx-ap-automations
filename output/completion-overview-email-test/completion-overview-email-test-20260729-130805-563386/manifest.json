@@ -1,0 +1,37 @@
+{
+  "batch_name": "completion-overview-email-test-20260729-130805-563386",
+  "generated_at_utc": "2026-07-29T13:08:09.722724+00:00",
+  "request": {
+    "projects_include_IDs": [
+      "2689331000000142114"
+    ],
+    "projects_exclude_IDs": [],
+    "projects_include_Names": [
+      "advice"
+    ],
+    "projects_exclude_Names": [],
+    "projects_include_Emails": [
+      "ghulamali9020@gmail.com"
+    ],
+    "active_only": true,
+    "dry_run": true
+  },
+  "projects_matched": 1,
+  "images_created": 1,
+  "projects": [
+    {
+      "project_id": "2689331000000142114",
+      "project_name": "BS - Jul 26 BAS (AP)",
+      "filename": "01-bs-jul-26-bas-ap.png",
+      "tasks_total": 20,
+      "bytes_png": 157669,
+      "error": null
+    }
+  ],
+  "delivery": {
+    "workflow": "completion-overview-cu25",
+    "attempted": false,
+    "sent": false,
+    "error": null
+  }
+}

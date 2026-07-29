@@ -11,7 +11,7 @@ from api.automations.task_summary_report import artifacts, azure_openai, power_a
 from api.automations.task_summary_report.models import JobResult, ReportRequest, field_map
 from api.automations.task_summary_report.pdf import ReportData, TaskRow, render_task_summary_pdf
 
-REPORT_TITLE = "Client Snapshot Report"
+REPORT_TITLE = "Client Group Zoho Report"
 
 # Project Group is derived from the Project Name's prefix (before the first
 # " - "), not read from a custom field. "FP" is kept alongside "FB" because the
@@ -156,6 +156,11 @@ def _status_name(task: dict, fields: dict) -> str:
     return _display(task.get("status")) or "Not started"
 
 
+def _preparer_name(task: dict, fields: dict) -> str:
+    value = _display(_read_report_field(task, fields["preparer"]))
+    return "" if value.casefold() == "*ap" else value
+
+
 def _infer_project_group(project_name: str) -> str:
     """FB/FP -> Financial Planning, BS -> Business Services, SMSF -> SMSF, else Uncategorized."""
     prefix = re.split(r"\s*-\s*", project_name, maxsplit=1)[0].strip().upper()
@@ -239,7 +244,7 @@ def _build_rows(matched: list[tuple[dict, dict]], fields: dict) -> list[TaskRow]
             project_group=_infer_project_group(project_name),
             custom_status=_status_name(task, fields),
             owner=_owner_name(task, fields),
-            preparer=_display(_read_report_field(task, fields["preparer"])),
+            preparer=_preparer_name(task, fields),
             cash_account=_display(
                 _read_report_field(
                     task,
@@ -446,7 +451,7 @@ async def run_report(req: ReportRequest, job_id: str = "") -> JobResult:
     try:
         await power_automate.deliver_pdf(
             webhook,
-            requestor_email=req.requestor_email or "",
+            request_emails=req.resolved_request_emails(),
             filename=req.resolved_filename(),
             pdf_bytes=pdf_bytes,
         )

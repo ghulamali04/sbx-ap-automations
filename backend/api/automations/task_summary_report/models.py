@@ -4,7 +4,9 @@ from __future__ import annotations
 import os
 from datetime import date
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from api.automations.email_recipients import normalize_email_recipients
 
 
 def field_map() -> dict[str, str]:
@@ -40,8 +42,16 @@ class ReportRequest(BaseModel):
     )
     requestor_email: str | None = Field(
         default=None,
-        description="M365 email address that the Power Automate flow sends the "
-                    "completed PDF to. Required unless dry_run is true.",
+        description="Legacy single-recipient field. Prefer request_emails.",
+    )
+    request_email: str | None = Field(
+        default=None,
+        description="Power Automate single-recipient field. Prefer request_emails.",
+    )
+    request_emails: list[str] = Field(
+        default_factory=list,
+        description="One or more recipients returned with the completed PDF to "
+                    "Power Automate. Required unless dry_run is true.",
     )
     webhook_url: str | None = Field(
         default=None,
@@ -56,6 +66,25 @@ class ReportRequest(BaseModel):
     dry_run: bool = Field(
         default=False, description="Render the PDF but skip delivery to Power Automate."
     )
+
+    @field_validator("request_emails", mode="before")
+    @classmethod
+    def normalize_request_emails(cls, value) -> list[str]:
+        return normalize_email_recipients(value)
+
+    @model_validator(mode="after")
+    def merge_legacy_requestor_email(self) -> "ReportRequest":
+        self.request_emails = normalize_email_recipients(
+            [
+                *self.request_emails,
+                self.request_email,
+                self.requestor_email,
+            ]
+        )
+        return self
+
+    def resolved_request_emails(self) -> list[str]:
+        return list(self.request_emails)
 
     def resolved_webhook(self) -> str | None:
         return (

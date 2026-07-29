@@ -8,10 +8,10 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import A3, landscape
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.platypus import (
+    LongTable,
     Paragraph,
     SimpleDocTemplate,
     Spacer,
-    Table,
     TableStyle,
 )
 
@@ -23,13 +23,20 @@ _BAND_B = colors.HexColor("#eaf2f2")
 _NA_FILL = colors.HexColor("#e2e2e2")
 _GRID = colors.HexColor("#bfbfbf")
 
-_CELL = ParagraphStyle("cell", fontName="Helvetica", fontSize=7, leading=8.5, textColor=_INK)
+_CELL = ParagraphStyle(
+    "cell",
+    fontName="Helvetica",
+    fontSize=7,
+    leading=8.5,
+    textColor=_INK,
+    splitLongWords=True,
+)
 _CELL_BOLD = ParagraphStyle("cellBold", parent=_CELL, fontName="Helvetica-Bold")
 _HEAD = ParagraphStyle("head", fontName="Helvetica-Bold", fontSize=7.5, leading=9, textColor=colors.white)
 _SECTION_HEAD = ParagraphStyle(
     "sectionHead", fontName="Helvetica-Bold", fontSize=10.5, textColor=_TEAL_TEXT, spaceAfter=4,
 )
-_SELECTED_COMMENTS_TITLE = "Selected Task Comments"
+_SELECTED_COMMENTS_TITLE = "Comments Summary"
 
 
 @dataclass
@@ -71,8 +78,8 @@ def _p(text: str | None, style: ParagraphStyle = _CELL) -> Paragraph:
 
 def _header_block(data: ReportData) -> list:
     subtitle = (
-        f"{data.tasks_total} tasks &nbsp;&#183;&nbsp; "
-        f"Prepared by {escape(data.prepared_by)} &nbsp;&#183;&nbsp; As at {escape(data.as_at)}"
+        f"Prepared by {escape(data.prepared_by)} "
+        f"&nbsp;&#183;&nbsp; As at {escape(data.as_at)}"
     )
     return [
         Paragraph("ADVISORY PARTNERS", ParagraphStyle(
@@ -116,7 +123,7 @@ _TASK_COLUMNS = [
 ]
 
 
-def _task_register_table(rows: list[TaskRow], page_width: float) -> Table:
+def _task_register_table(rows: list[TaskRow], page_width: float) -> LongTable:
     total_weight = sum(w for _, _, w in _TASK_COLUMNS)
     scale = page_width / total_weight
     widths = [w * scale for _, _, w in _TASK_COLUMNS]
@@ -161,7 +168,13 @@ def _task_register_table(rows: list[TaskRow], page_width: float) -> Table:
             cells.append(_p(text, _CELL))
         body.append(cells)
 
-    t = Table(body, colWidths=widths, repeatRows=1, hAlign="LEFT")
+    t = LongTable(
+        body,
+        colWidths=widths,
+        repeatRows=1,
+        splitByRow=1,
+        hAlign="LEFT",
+    )
     style = [
         ("BACKGROUND", (0, 0), (-1, 0), _TEAL),
         ("GRID", (0, 0), (-1, -1), 0.4, _GRID),
@@ -182,14 +195,20 @@ def _task_register_table(rows: list[TaskRow], page_width: float) -> Table:
 def _selected_comments_table(
     comments: list[tuple[str, str, str]],
     page_width: float,
-) -> Table:
+) -> LongTable:
     task_w = int(page_width * 0.22)
     project_w = int(page_width * 0.16)
     note_w = int(page_width - task_w - project_w)
     body = [[_p("Task", _HEAD), _p("Project", _HEAD), _p("Summary", _HEAD)]]
     for task, project, summary in comments:
         body.append([_p(task), _p(project), _p(summary)])
-    t = Table(body, colWidths=[task_w, project_w, note_w], repeatRows=1, hAlign="LEFT")
+    t = LongTable(
+        body,
+        colWidths=[task_w, project_w, note_w],
+        repeatRows=1,
+        splitByRow=1,
+        hAlign="LEFT",
+    )
     style = [
         ("BACKGROUND", (0, 0), (-1, 0), _TEAL),
         ("GRID", (0, 0), (-1, -1), 0.4, _GRID),

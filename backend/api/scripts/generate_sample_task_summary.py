@@ -104,7 +104,7 @@ def main() -> None:
         ),
     ]
     report = ReportData(
-        title="Client Snapshot Report - Sample",
+        title="Client Group Zoho Report - Sample",
         head_client_id="53",
         tasks_total=len(rows),
         prepared_by="Advisory Partners",

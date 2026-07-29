@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import re
 from argparse import Namespace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -12,6 +13,7 @@ from fastapi.testclient import TestClient
 
 from api.automations.task_summary_report import azure_openai, power_automate
 from api.automations.task_summary_report.models import field_map
+from api.automations.task_summary_report.models import ReportRequest as TaskReportRequest
 from api.automations.task_summary_report.pdf import (
     _SELECTED_COMMENTS_TITLE,
     _TASK_COLUMNS,
@@ -216,9 +218,9 @@ class PdfRenderTests(TestCase):
 
     def test_head_client_id_is_displayed_at_top(self) -> None:
         data = ReportData(
-            title="Client Snapshot Report",
+            title="Client Group Zoho Report",
             head_client_id="53",
-            tasks_total=0,
+            tasks_total=9,
             prepared_by="Advisory Partners",
             as_at="28 July 2026",
             rows=[],
@@ -227,10 +229,32 @@ class PdfRenderTests(TestCase):
 
         header_text = [paragraph.getPlainText() for paragraph in _header_block(data)]
 
+        self.assertEqual(header_text[1], "Client Group Zoho Report")
         self.assertEqual(header_text[2], "Head Client ID: 53")
+        self.assertNotIn("9 tasks", header_text[3].casefold())
 
-    def test_selected_section_is_named_task_comments(self) -> None:
-        self.assertEqual(_SELECTED_COMMENTS_TITLE, "Selected Task Comments")
+    def test_selected_section_is_named_comments_summary(self) -> None:
+        self.assertEqual(_SELECTED_COMMENTS_TITLE, "Comments Summary")
+
+    def test_ap_placeholder_is_not_used_as_preparer(self) -> None:
+        rows = _build_rows(
+            [
+                (
+                    {
+                        "name": "Client 3",
+                        "custom_fields": [
+                            {
+                                "label_name": "Who prepares BAS/IAS",
+                                "value": "*AP",
+                            }
+                        ],
+                    },
+                    {"name": "BS - Jun 26 BAS (AP)"},
+                )
+            ],
+            field_map(),
+        )
+        self.assertEqual(rows[0].preparer, "")
 
     def test_task_summary_renders_for_clients_101_53_and_3(self) -> None:
         row = TaskRow(
@@ -251,7 +275,7 @@ class PdfRenderTests(TestCase):
         for client_id in ("101", "53", "3"):
             with self.subTest(head_client_id=client_id):
                 data = ReportData(
-                    title="Client Snapshot Report",
+                    title="Client Group Zoho Report",
                     head_client_id=client_id,
                     tasks_total=1,
                     prepared_by="Advisory Partners",
@@ -270,6 +294,49 @@ class PdfRenderTests(TestCase):
 
                 self.assertTrue(pdf_bytes.startswith(b"%PDF-"))
                 self.assertGreater(len(pdf_bytes), 1_000)
+
+    def test_long_text_wraps_and_tables_span_multiple_pages(self) -> None:
+        rows = [
+            TaskRow(
+                project_name=f"BS - Long project {index}",
+                task_name="UnbrokenTaskName" * 15,
+                project_group="Business Services",
+                custom_status="In progress",
+                owner="Complete Owner Name",
+                preparer="Accountant",
+                cash_account="",
+                td_value=None,
+                td_term="",
+                provider="",
+                maturity_instruction="",
+                td_roa_reason="",
+                notes=("Long client note with wrapping content. " * 25),
+                td_applicable=False,
+            )
+            for index in range(55)
+        ]
+        data = ReportData(
+            title="Client Group Zoho Report",
+            head_client_id="3",
+            tasks_total=len(rows),
+            prepared_by="Advisory Partners",
+            as_at="29 July 2026",
+            rows=rows,
+            selected_comments=[
+                (
+                    "Long task name " * 20,
+                    "BS - Long project",
+                    "Recent comments explain the outcome and current status. " * 80,
+                )
+            ],
+        )
+
+        pdf_bytes = render_task_summary_pdf(data)
+
+        self.assertGreaterEqual(
+            len(re.findall(rb"/Type\s*/Page\b", pdf_bytes)),
+            2,
+        )
 
 
 class SelectedCommentsTests(IsolatedAsyncioTestCase):
@@ -401,7 +468,7 @@ class SelectedCommentsTests(IsolatedAsyncioTestCase):
         self.assertEqual(selected, [])
         summarize.assert_not_awaited()
 
-    async def test_ai_prompt_is_comments_only_with_no_weighting(self) -> None:
+    async def test_ai_prompt_tells_story_with_recent_outcome_and_status(self) -> None:
         with patch(
             "api.automations.task_summary_report.azure_openai._create_completion",
             return_value="Summary",
@@ -417,8 +484,10 @@ class SelectedCommentsTests(IsolatedAsyncioTestCase):
         system_prompt = messages[0]["content"]
         user_prompt = messages[1]["content"]
         self.assertIn("past 180 days", system_prompt)
-        self.assertIn("Do not infer or summarise overall task activity", system_prompt)
-        self.assertIn("Do not weight", system_prompt)
+        self.assertIn("overall story", system_prompt)
+        self.assertIn("emphasise the most recent comments", system_prompt)
+        self.assertIn("outcome and current status", system_prompt)
+        self.assertIn("Do not infer facts", system_prompt)
         self.assertNotIn("Task name", user_prompt)
         self.assertNotIn("Project name", user_prompt)
         self.assertNotIn("Notes:", user_prompt)
@@ -426,6 +495,75 @@ class SelectedCommentsTests(IsolatedAsyncioTestCase):
 
 
 class PowerAutomateDeliveryTests(IsolatedAsyncioTestCase):
+    def test_api_receives_and_queues_client_pdf_recipients(self) -> None:
+        payload = {
+            "head_client_id": "53",
+            "request_emails": [
+                "first@example.test",
+                "second@example.test",
+            ],
+            "dry_run": False,
+        }
+
+        with (
+            patch(
+                "api.automations.task_summary_report.routes.create_job",
+                return_value="client-job",
+            ),
+            patch(
+                "api.automations.task_summary_report.routes.queue.dispatch_report",
+            ) as dispatch,
+        ):
+            response = TestClient(app).post("/reports/task-summary", json=payload)
+
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(response.json()["job_id"], "client-job")
+        queued_request = dispatch.call_args.args[1]
+        self.assertEqual(queued_request.head_client_id, "53")
+        self.assertEqual(
+            queued_request.resolved_request_emails(),
+            ["first@example.test", "second@example.test"],
+        )
+
+    def test_task_report_uses_its_dedicated_webhook(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "TASK_SUMMARY_WEBHOOK_URL": "https://client-report.example.test",
+                "POWER_AUTOMATE_WEBHOOK_URL": "https://fallback.example.test",
+            },
+            clear=False,
+        ):
+            self.assertEqual(
+                TaskReportRequest(head_client_id="3").resolved_webhook(),
+                "https://client-report.example.test",
+            )
+
+    def test_pdf_request_accepts_new_and_legacy_email_fields(self) -> None:
+        request = TaskReportRequest.model_validate(
+            {
+                "head_client_id": "3",
+                "request_emails": [
+                    "first@example.test",
+                    "second@example.test",
+                ],
+                "request_email": "third@example.test",
+                "requestor_email": "first@example.test",
+            }
+        )
+        queued_request = TaskReportRequest.model_validate(
+            request.model_dump(mode="json")
+        )
+
+        self.assertEqual(
+            queued_request.resolved_request_emails(),
+            [
+                "first@example.test",
+                "second@example.test",
+                "third@example.test",
+            ],
+        )
+
     async def test_flow_receives_recipient_and_pdf_attachment(self) -> None:
         response = MagicMock(status_code=200)
         http_client = AsyncMock()
@@ -446,12 +584,47 @@ class PowerAutomateDeliveryTests(IsolatedAsyncioTestCase):
 
         payload = http_client.post.await_args.kwargs["json"]
         self.assertEqual(payload["request_email"], "requestor@example.test")
+        self.assertEqual(payload["request_emails"], ["requestor@example.test"])
         self.assertEqual(payload["filename"], "snapshot.pdf")
         self.assertEqual(payload["content_type"], "application/pdf")
         self.assertEqual(base64.b64decode(payload["pdf_b64"]), b"%PDF-test")
         self.assertEqual(
             set(payload),
-            {"filename", "content_type", "pdf_b64", "request_email"},
+            {
+                "filename",
+                "content_type",
+                "pdf_b64",
+                "request_email",
+                "request_emails",
+            },
+        )
+
+    async def test_flow_receives_all_pdf_recipient_emails(self) -> None:
+        response = MagicMock(status_code=200)
+        http_client = AsyncMock()
+        http_client.post.return_value = response
+        context_manager = AsyncMock()
+        context_manager.__aenter__.return_value = http_client
+
+        with patch(
+            "api.automations.task_summary_report.power_automate.httpx.AsyncClient",
+            return_value=context_manager,
+        ):
+            await power_automate.deliver_pdf(
+                "https://flow.example.test/report",
+                request_emails=[
+                    "first@example.test",
+                    "second@example.test",
+                ],
+                filename="snapshot.pdf",
+                pdf_bytes=b"%PDF-test",
+            )
+
+        payload = http_client.post.await_args.kwargs["json"]
+        self.assertEqual(payload["request_email"], "first@example.test")
+        self.assertEqual(
+            payload["request_emails"],
+            ["first@example.test", "second@example.test"],
         )
 
 
@@ -512,7 +685,7 @@ class LiveReportScriptTests(IsolatedAsyncioTestCase):
             output = await generate_actual_task_summary.generate_live_report(args)
 
         report = render_pdf.call_args.args[0]
-        self.assertEqual(report.title, "Client Snapshot Report")
+        self.assertEqual(report.title, "Client Group Zoho Report")
         self.assertEqual(report.head_client_id, "53")
         self.assertEqual(
             report.selected_comments[0][2],
@@ -523,8 +696,8 @@ class LiveReportScriptTests(IsolatedAsyncioTestCase):
         validate_webhook.assert_called_once_with(args.webhook_url)
         deliver_pdf.assert_awaited_once()
         self.assertEqual(
-            deliver_pdf.await_args.kwargs["requestor_email"],
-            args.requestor_email,
+            deliver_pdf.await_args.kwargs["request_emails"],
+            [args.requestor_email],
         )
         self.assertEqual(deliver_pdf.await_args.kwargs["pdf_bytes"], rendered_pdf)
         self.assertEqual(output.name, "live-client-53.pdf")

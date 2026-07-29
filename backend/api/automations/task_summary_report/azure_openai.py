@@ -20,11 +20,12 @@ _AZURE_OPENAI_TOKEN_SCOPE = "https://cognitiveservices.azure.com/.default"
 _LOG = logging.getLogger(__name__)
 
 _SYSTEM_PROMPT = (
-    "Summarise only the task comments supplied by the user. Every supplied "
-    "comment is from the past 180 days. Do not infer or summarise overall task "
-    "activity, status, progress, notes, or other task data. Do not weight or "
-    "prioritise comments by date or any other factor. Write two or three concise "
-    "plain-English sentences with no heading, preamble, quotes, or markdown."
+    "Summarise only the task comments supplied by the user; every supplied "
+    "comment is from the past 180 days. Tell the overall story shown by the "
+    "comments, emphasise the most recent comments, and describe the outcome and "
+    "current status of the task for the client when supported by those comments. "
+    "Do not infer facts that are not present in the comments. Write two or three "
+    "concise plain-English sentences with no heading, preamble, quotes, or markdown."
 )
 
 
