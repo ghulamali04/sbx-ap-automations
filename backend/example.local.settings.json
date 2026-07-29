@@ -23,9 +23,9 @@
     "TERM_DEPOSIT_PROJECT_NAMES": "FP - Term Deposits",
 
     "_comment_meeting_notes": "Meeting Notes automation (Teams transcripts -> Azure OpenAI -> Graph sendMail). GRAPH_* are the app registration with OnlineMeetingTranscript.Read.All, User.Read.All, GroupMember.Read.All and Mail.Send; leave blank in Azure to use the Function App managed identity instead.",
-    "GRAPH_TENANT_ID": "",
-    "GRAPH_CLIENT_ID": "",
-    "GRAPH_CLIENT_SECRET": "",
+    "GRAPH_TENANT_ID": "b78fcd55-dd51-4879-bd9f-7bf037dc50d4",
+    "GRAPH_CLIENT_ID": "c7d39658-6dcf-4901-bb6c-3c9068462a02",
+    "GRAPH_CLIENT_SECRET": "1b9ebe59-848a-4b39-919d-65c12c0c4545",
     "MEETING_NOTES_NOTIFICATION_URL": "",
     "MEETING_NOTES_LIFECYCLE_URL": "",
     "MEETING_NOTES_CLIENT_STATE": "",

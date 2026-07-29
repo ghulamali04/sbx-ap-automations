@@ -2,3 +2,4 @@
 scripts/*.env
 !scripts/*.env.example
 output
+locals.*
