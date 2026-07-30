@@ -11,11 +11,11 @@ from api.main import app
 
 
 _PROJECTS = [
-    {"id": "1", "name": "BS - Jul 26 BAS (AP)", "status": "active"},
-    {"id": "2", "name": "BS - Jul 26 Compliance", "status": "active"},
-    {"id": "3", "name": "FP - Advice", "status": "active"},
-    {"id": "4", "name": "BS - Aug 26 BAS (AP)", "status": "inactive"},
-    {"id": "5", "name": "SMSF - Annual", "status": "active"},
+    {"id": "1", "id_string": "1", "key": "AI-6", "name": "BS - Jul 26 BAS (AP)", "status": "active"},
+    {"id": "2", "id_string": "2", "key": "AI-2", "name": "BS - Jul 26 Compliance", "status": "active"},
+    {"id": "3", "id_string": "3", "key": "AI-3", "name": "FP - Advice", "status": "active"},
+    {"id": "4", "id_string": "4", "key": "AI-5", "name": "BS - Aug 26 BAS (AP)", "status": "inactive"},
+    {"id": "5", "id_string": "5", "key": "AI-1", "name": "SMSF - Annual", "status": "active"},
     {"id": "6", "name": None, "status": "active"},
 ]
 
@@ -47,6 +47,22 @@ class CompletionOverviewFilterTests(IsolatedAsyncioTestCase):
                     "projects_include_Names": ["bs"],
                 },
                 [],
+            ),
+            (
+                "visible Zoho key is accepted as an include id",
+                {
+                    "projects_include_IDs": ["ai-6"],
+                    "projects_include_Names": ["advice"],
+                },
+                ["1"],
+            ),
+            (
+                "visible Zoho key is accepted as an exclude id",
+                {
+                    "projects_include_Names": ["bs"],
+                    "projects_exclude_IDs": ["AI-6"],
+                },
+                ["2", "4"],
             ),
             (
                 "include names when include ids empty",

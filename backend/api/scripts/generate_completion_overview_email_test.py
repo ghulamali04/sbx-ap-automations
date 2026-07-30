@@ -47,6 +47,10 @@ def _parse_args() -> argparse.Namespace:
         help="Recipient email. Repeat to include multiple recipients.",
     )
     parser.add_argument(
+        "--email-subject",
+        help="Subject sent to the Completion Overview Power Automate flow.",
+    )
+    parser.add_argument(
         "--include-inactive",
         action="store_true",
         help="Include inactive Zoho projects. Active projects are used by default.",
@@ -92,6 +96,7 @@ async def generate_email_test(args: argparse.Namespace) -> Path:
         projects_include_Names=args.include_name,
         projects_exclude_Names=args.exclude_name,
         projects_include_Emails=recipients,
+        email_subject=getattr(args, "email_subject", None),
         active_only=not args.include_inactive,
         webhook_url=args.webhook_url,
         dry_run=args.dry_run or not recipients,
@@ -130,6 +135,9 @@ async def generate_email_test(args: argparse.Namespace) -> Path:
                 "filename": chart.filename,
                 "tasks_total": chart.tasks_total,
                 "bytes_png": chart.bytes_png,
+                "panels": [
+                    panel.model_dump(mode="json") for panel in chart.panels
+                ],
                 "error": chart.error,
             }
         )
@@ -143,6 +151,7 @@ async def generate_email_test(args: argparse.Namespace) -> Path:
             "projects_include_Names": request.projects_include_Names,
             "projects_exclude_Names": request.projects_exclude_Names,
             "projects_include_Emails": request.projects_include_Emails,
+            "email_subject": request.resolved_email_subject(),
             "active_only": request.active_only,
             "dry_run": request.dry_run,
         },
@@ -178,6 +187,7 @@ async def generate_email_test(args: argparse.Namespace) -> Path:
                 filename=batch_name,
                 images=rendered_images,
                 request_emails=recipients,
+                email_subject=request.resolved_email_subject(),
             )
             manifest["delivery"]["sent"] = True
         except Exception as exc:

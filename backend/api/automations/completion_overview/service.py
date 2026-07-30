@@ -16,6 +16,7 @@ from api.automations.completion_overview.charts import Panel, Row, render_combin
 from api.automations.completion_overview.models import (
     ChartResult,
     JobResult,
+    MetricSummary,
     PanelSummary,
     ReportRequest,
 )
@@ -106,6 +107,23 @@ def _name_matches(project: dict, keywords: list[str]) -> bool:
     )
 
 
+def _project_identifiers(project: dict) -> set[str]:
+    """Return every Zoho identifier accepted by the Power Automate filters.
+
+    Zoho's visible project number is `key` (for example ``AI-7``), while API
+    calls use the longer `id`/`id_string`. Callers may provide either form.
+    """
+    return {
+        str(value).strip().casefold()
+        for value in (
+            project.get("id"),
+            project.get("id_string"),
+            project.get("key"),
+        )
+        if value is not None and str(value).strip()
+    }
+
+
 async def resolve_projects(req: ReportRequest) -> list[dict]:
     """Choose one include strategy, then apply every exclusion.
 
@@ -114,22 +132,38 @@ async def resolve_projects(req: ReportRequest) -> list[dict]:
     When neither include list is given, exclusions narrow the full project list.
     """
     all_projects = await client.list_projects()
-    by_id = {str(p.get("id")): p for p in all_projects}
+    by_identifier = {
+        identifier: project
+        for project in all_projects
+        for identifier in _project_identifiers(project)
+    }
 
     if req.projects_include_IDs:
-        selected = [
-            by_id[pid]
-            for pid in (str(value).strip() for value in req.projects_include_IDs)
-            if pid in by_id
-        ]
+        selected = []
+        selected_internal_ids: set[str] = set()
+        for requested_id in req.projects_include_IDs:
+            project = by_identifier.get(str(requested_id).strip().casefold())
+            if project is None:
+                continue
+            internal_id = str(project.get("id"))
+            if internal_id not in selected_internal_ids:
+                selected_internal_ids.add(internal_id)
+                selected.append(project)
     elif req.projects_include_Names:
         selected = [p for p in all_projects if _name_matches(p, req.projects_include_Names)]
     else:
         selected = list(all_projects)
 
     if req.projects_exclude_IDs:
-        excluded_ids = {str(value).strip() for value in req.projects_exclude_IDs}
-        selected = [p for p in selected if str(p.get("id")) not in excluded_ids]
+        excluded_ids = {
+            str(value).strip().casefold()
+            for value in req.projects_exclude_IDs
+        }
+        selected = [
+            project
+            for project in selected
+            if _project_identifiers(project).isdisjoint(excluded_ids)
+        ]
     if req.projects_exclude_Names:
         selected = [p for p in selected if not _name_matches(p, req.projects_exclude_Names)]
 
@@ -215,6 +249,7 @@ async def run_report(req: ReportRequest) -> JobResult:
             filename=req.resolved_filename(),
             images=[png for _, png in ready],
             request_emails=req.projects_include_Emails,
+            email_subject=req.resolved_email_subject(),
         )
         for chart, _ in ready:
             chart.delivered = True
@@ -245,6 +280,14 @@ def _render_project_chart(
         chart.panels.append(PanelSummary(
             grouping=field, people=len(rows),
             tasks_included=included, tasks_excluded=excluded,
+            statistics=[
+                MetricSummary(
+                    label=row.label,
+                    value=row.value,
+                    count=row.count,
+                )
+                for row in rows
+            ],
         ))
 
     try:

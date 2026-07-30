@@ -1,6 +1,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import os
 from urllib.parse import urlparse
@@ -37,30 +38,55 @@ async def deliver_charts(
     filename: str,
     images: list[bytes],
     request_emails: list[str],
+    email_subject: str | None = None,
 ) -> None:
-    """POST every PNG chart and all recipients in one flow call.
+    """POST every PNG chart, recipient, and subject in one flow call.
 
     All images go in a single request so the flow triggers once and can build one
     email containing them all — one call per project would send one email each.
 
-    `images` order is meaningful: it is the order the charts should appear in
-    (BAS before IAS, chronological within each), so the flow can rely on it.
+    `images` order is meaningful: it is the order Power Automate should embed the
+    images in its HTML email body (BAS before IAS, chronological within each).
+    The payload deliberately matches the Power Automate trigger schema exactly.
     """
     recipients = normalize_email_recipients(request_emails)
     if not recipients:
         raise ValueError("At least one report recipient email is required.")
     if not images:
         raise ValueError("At least one completion chart image is required.")
+    subject = (email_subject or "Completion Overview Report").strip()
+    encoded_images = [
+        base64.b64encode(image).decode("ascii") for image in images
+    ]
     payload = {
         "filename": filename,
         "content_type": "image/png",
-        "image_b64": [
-            base64.b64encode(image).decode("ascii") for image in images
-        ],
+        "image_b64": encoded_images,
+        "email_subject": subject,
         "projects_include_Emails": recipients,
     }
+    attempts = max(
+        1,
+        int(os.getenv("POWER_AUTOMATE_DELIVERY_ATTEMPTS", "3")),
+    )
+    transient_errors = (
+        httpx.ConnectError,
+        httpx.ConnectTimeout,
+        httpx.ReadError,
+        httpx.ReadTimeout,
+        httpx.RemoteProtocolError,
+        httpx.WriteError,
+        httpx.WriteTimeout,
+    )
     async with httpx.AsyncClient(timeout=180) as client:
-        resp = await client.post(webhook_url, json=payload)
+        for attempt in range(1, attempts + 1):
+            try:
+                resp = await client.post(webhook_url, json=payload)
+                break
+            except transient_errors:
+                if attempt >= attempts:
+                    raise
+                await asyncio.sleep(attempt)
     if resp.status_code >= 300:
         raise RuntimeError(
             f"Power Automate webhook returned HTTP {resp.status_code}: {resp.text[:300]}"

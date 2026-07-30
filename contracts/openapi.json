@@ -503,6 +503,30 @@
         "type": "object",
         "title": "HTTPValidationError"
       },
+      "MetricSummary": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "value": {
+            "type": "number",
+            "title": "Value"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "label",
+          "value",
+          "count"
+        ],
+        "title": "MetricSummary",
+        "description": "One displayed bar and the current tasks contributing to its percentage."
+      },
       "PanelSummary": {
         "properties": {
           "grouping": {
@@ -520,6 +544,13 @@
           "tasks_excluded": {
             "type": "integer",
             "title": "Tasks Excluded"
+          },
+          "statistics": {
+            "items": {
+              "$ref": "#/components/schemas/MetricSummary"
+            },
+            "type": "array",
+            "title": "Statistics"
           }
         },
         "type": "object",
@@ -685,6 +716,19 @@
             "type": "array",
             "title": "Projects Include Emails",
             "description": "One or more recipients received from Power Automate and returned with the generated report artifacts."
+          },
+          "email_subject": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email Subject",
+            "description": "Email subject returned to Power Automate. Defaults to a dated Completion Overview Report subject."
           },
           "active_only": {
             "type": "boolean",

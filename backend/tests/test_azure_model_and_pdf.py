@@ -15,6 +15,8 @@ from api.automations.task_summary_report import azure_openai, power_automate
 from api.automations.task_summary_report.models import field_map
 from api.automations.task_summary_report.models import ReportRequest as TaskReportRequest
 from api.automations.task_summary_report.pdf import (
+    _CELL,
+    _HEAD,
     _SELECTED_COMMENTS_TITLE,
     _TASK_COLUMNS,
     _header_block,
@@ -69,14 +71,14 @@ class AzureModelRouteTests(TestCase):
             ),
             patch(
                 "api.main.azure_openai.deployment_name",
-                return_value="Mistral-Large-3",
+                return_value="gpt-5.6-terra-sandbox",
             ),
         ):
             response = TestClient(app).get("/azure-model-test")
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["status"], "ok")
-        self.assertEqual(response.json()["model"], "Mistral-Large-3")
+        self.assertEqual(response.json()["model"], "gpt-5.6-terra-sandbox")
         self.assertIn("Paris", response.json()["response"])
 
     def test_azure_model_test_returns_clean_authentication_error(self) -> None:
@@ -236,7 +238,7 @@ class PdfRenderTests(TestCase):
     def test_selected_section_is_named_comments_summary(self) -> None:
         self.assertEqual(_SELECTED_COMMENTS_TITLE, "Comments Summary")
 
-    def test_ap_placeholder_is_not_used_as_preparer(self) -> None:
+    def test_ap_is_preserved_as_a_valid_preparer(self) -> None:
         rows = _build_rows(
             [
                 (
@@ -254,7 +256,18 @@ class PdfRenderTests(TestCase):
             ],
             field_map(),
         )
+        self.assertEqual(rows[0].preparer, "*AP")
+
+    def test_missing_preparer_is_blank(self) -> None:
+        rows = _build_rows(
+            [({"name": "Client 3", "custom_fields": []}, {"name": "BS - BAS"})],
+            field_map(),
+        )
         self.assertEqual(rows[0].preparer, "")
+
+    def test_pdf_typography_is_readable(self) -> None:
+        self.assertGreaterEqual(_CELL.fontSize, 8)
+        self.assertGreaterEqual(_HEAD.fontSize, 8.5)
 
     def test_task_summary_renders_for_clients_101_53_and_3(self) -> None:
         row = TaskRow(
@@ -485,13 +498,51 @@ class SelectedCommentsTests(IsolatedAsyncioTestCase):
         user_prompt = messages[1]["content"]
         self.assertIn("past 180 days", system_prompt)
         self.assertIn("overall story", system_prompt)
-        self.assertIn("emphasise the most recent comments", system_prompt)
+        self.assertIn("emphasising the most recent comments", system_prompt)
         self.assertIn("outcome and current status", system_prompt)
-        self.assertIn("Do not infer facts", system_prompt)
+        self.assertIn("Do not infer missing facts", system_prompt)
         self.assertNotIn("Task name", user_prompt)
         self.assertNotIn("Project name", user_prompt)
         self.assertNotIn("Notes:", user_prompt)
         self.assertIn("Client requested renewal.", user_prompt)
+
+    def test_terra_uses_responses_api_with_lean_reasoning(self) -> None:
+        response = MagicMock(output_text="  Current status is complete.  ")
+        client = MagicMock()
+        client.responses.create.return_value = response
+        with (
+            patch.object(azure_openai, "_client", return_value=client),
+            patch.object(
+                azure_openai,
+                "deployment_name",
+                return_value="gpt-5.6-terra-sandbox",
+            ),
+            patch.dict(
+                "os.environ",
+                {
+                    "AZURE_OPENAI_REASONING_EFFORT": "low",
+                    "AZURE_OPENAI_TEXT_VERBOSITY": "low",
+                },
+                clear=False,
+            ),
+        ):
+            result = azure_openai._create_completion(
+                [
+                    {"role": "system", "content": "Summarise comments."},
+                    {"role": "user", "content": "Recent comment."},
+                ],
+                120,
+            )
+
+        self.assertEqual(result, "Current status is complete.")
+        client.responses.create.assert_called_once_with(
+            model="gpt-5.6-terra-sandbox",
+            instructions="Summarise comments.",
+            input="Recent comment.",
+            max_output_tokens=256,
+            reasoning={"effort": "low"},
+            text={"verbosity": "low"},
+        )
 
 
 class PowerAutomateDeliveryTests(IsolatedAsyncioTestCase):

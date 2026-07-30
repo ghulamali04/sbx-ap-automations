@@ -1,0 +1,467 @@
+{
+  "batch_name": "completion-overview-email-test-20260730-073131-964200",
+  "generated_at_utc": "2026-07-30T07:31:41.993323+00:00",
+  "request": {
+    "projects_include_IDs": [],
+    "projects_exclude_IDs": [],
+    "projects_include_Names": [
+      "bs"
+    ],
+    "projects_exclude_Names": [
+      "compliance"
+    ],
+    "projects_include_Emails": [],
+    "email_subject": "Completion Overview Report - 2026-07-30",
+    "active_only": true,
+    "dry_run": true
+  },
+  "projects_matched": 4,
+  "images_created": 4,
+  "projects": [
+    {
+      "project_id": "2689331000000142114",
+      "project_name": "BS - Jul 26 BAS (AP)",
+      "filename": "01-bs-jul-26-bas-ap.png",
+      "tasks_total": 20,
+      "bytes_png": 157635,
+      "panels": [
+        {
+          "grouping": "Partner",
+          "people": 6,
+          "tasks_included": 20,
+          "tasks_excluded": 0,
+          "statistics": [
+            {
+              "label": "Tahlia Sinnott",
+              "value": 25.0,
+              "count": 3
+            },
+            {
+              "label": "Matthew Le Maitre",
+              "value": 57.142857142857146,
+              "count": 7
+            },
+            {
+              "label": "Luke Pinjuh",
+              "value": 60.0,
+              "count": 5
+            },
+            {
+              "label": "Dylan Davis",
+              "value": 60.0,
+              "count": 1
+            },
+            {
+              "label": "Nicholas Bethune",
+              "value": 26.666666666666668,
+              "count": 3
+            },
+            {
+              "label": "Sam Dunbabin",
+              "value": 60.0,
+              "count": 1
+            }
+          ]
+        },
+        {
+          "grouping": "Accountant",
+          "people": 11,
+          "tasks_included": 20,
+          "tasks_excluded": 0,
+          "statistics": [
+            {
+              "label": "Tahlia Sinnott",
+              "value": 25.0,
+              "count": 3
+            },
+            {
+              "label": "Thomas Pinjuh",
+              "value": 90.0,
+              "count": 1
+            },
+            {
+              "label": "Maria Sicat",
+              "value": 60.0,
+              "count": 1
+            },
+            {
+              "label": "Venus Calango",
+              "value": 45.0,
+              "count": 2
+            },
+            {
+              "label": "Janice Leona",
+              "value": 40.0,
+              "count": 3
+            },
+            {
+              "label": "Mariz Sarcilla",
+              "value": 53.333333333333336,
+              "count": 3
+            },
+            {
+              "label": "Ivy Ibanez",
+              "value": 60.0,
+              "count": 2
+            },
+            {
+              "label": "Elyse Howard",
+              "value": 60.0,
+              "count": 1
+            },
+            {
+              "label": "Matthew Le Maitre",
+              "value": 90.0,
+              "count": 1
+            },
+            {
+              "label": "Carl Marinovic",
+              "value": 10.0,
+              "count": 1
+            },
+            {
+              "label": "Krissa Valdez",
+              "value": 50.0,
+              "count": 2
+            }
+          ]
+        }
+      ],
+      "error": null
+    },
+    {
+      "project_id": "2689331000000099744",
+      "project_name": "BS - Jun 26 BAS (AP)",
+      "filename": "02-bs-jun-26-bas-ap.png",
+      "tasks_total": 23,
+      "bytes_png": 174558,
+      "panels": [
+        {
+          "grouping": "Partner",
+          "people": 8,
+          "tasks_included": 22,
+          "tasks_excluded": 1,
+          "statistics": [
+            {
+              "label": "AP Internal",
+              "value": 10.0,
+              "count": 1
+            },
+            {
+              "label": "Tahlia Sinnott",
+              "value": 55.0,
+              "count": 3
+            },
+            {
+              "label": "Matthew Le Maitre",
+              "value": 33.57142857142857,
+              "count": 7
+            },
+            {
+              "label": "Luke Pinjuh",
+              "value": 31.0,
+              "count": 5
+            },
+            {
+              "label": "Dylan Davis",
+              "value": 50.0,
+              "count": 1
+            },
+            {
+              "label": "Nicholas Bethune",
+              "value": 10.0,
+              "count": 3
+            },
+            {
+              "label": "Sam Dunbabin",
+              "value": 20.0,
+              "count": 1
+            },
+            {
+              "label": "Daniel Blount",
+              "value": 23.0,
+              "count": 1
+            }
+          ]
+        },
+        {
+          "grouping": "Accountant",
+          "people": 12,
+          "tasks_included": 21,
+          "tasks_excluded": 2,
+          "statistics": [
+            {
+              "label": "Tahlia Sinnott",
+              "value": 55.0,
+              "count": 3
+            },
+            {
+              "label": "Thomas Pinjuh",
+              "value": 90.0,
+              "count": 1
+            },
+            {
+              "label": "Maria Sicat",
+              "value": 60.0,
+              "count": 1
+            },
+            {
+              "label": "Venus Calango",
+              "value": 40.0,
+              "count": 2
+            },
+            {
+              "label": "Janice Leona",
+              "value": 25.0,
+              "count": 3
+            },
+            {
+              "label": "Mariz Sarcilla",
+              "value": 40.0,
+              "count": 3
+            },
+            {
+              "label": "Ivy Ibanez",
+              "value": 10.0,
+              "count": 2
+            },
+            {
+              "label": "Elyse Howard",
+              "value": 20.0,
+              "count": 1
+            },
+            {
+              "label": "Matthew Le Maitre",
+              "value": 10.0,
+              "count": 1
+            },
+            {
+              "label": "Carl Marinovic",
+              "value": 10.0,
+              "count": 1
+            },
+            {
+              "label": "Krissa Valdez",
+              "value": 2.5,
+              "count": 2
+            },
+            {
+              "label": "Daniel Blount",
+              "value": 23.0,
+              "count": 1
+            }
+          ]
+        }
+      ],
+      "error": null
+    },
+    {
+      "project_id": "2689331000000142144",
+      "project_name": "BS - Jul 26 IAS (AP)",
+      "filename": "03-bs-jul-26-ias-ap.png",
+      "tasks_total": 15,
+      "bytes_png": 146924,
+      "panels": [
+        {
+          "grouping": "Partner",
+          "people": 6,
+          "tasks_included": 15,
+          "tasks_excluded": 0,
+          "statistics": [
+            {
+              "label": "Tahlia Sinnott",
+              "value": 40.0,
+              "count": 2
+            },
+            {
+              "label": "Matthew Le Maitre",
+              "value": 21.666666666666668,
+              "count": 6
+            },
+            {
+              "label": "Luke Pinjuh",
+              "value": 13.333333333333334,
+              "count": 3
+            },
+            {
+              "label": "Dylan Davis",
+              "value": 5.0,
+              "count": 1
+            },
+            {
+              "label": "Nicholas Bethune",
+              "value": 15.0,
+              "count": 2
+            },
+            {
+              "label": "Sam Dunbabin",
+              "value": 10.0,
+              "count": 1
+            }
+          ]
+        },
+        {
+          "grouping": "Accountant",
+          "people": 10,
+          "tasks_included": 15,
+          "tasks_excluded": 0,
+          "statistics": [
+            {
+              "label": "Tahlia Sinnott",
+              "value": 40.0,
+              "count": 2
+            },
+            {
+              "label": "Thomas Pinjuh",
+              "value": 20.0,
+              "count": 1
+            },
+            {
+              "label": "Maria Sicat",
+              "value": 20.0,
+              "count": 1
+            },
+            {
+              "label": "Venus Calango",
+              "value": 40.0,
+              "count": 2
+            },
+            {
+              "label": "Janice Leona",
+              "value": 5.0,
+              "count": 2
+            },
+            {
+              "label": "Mariz Sarcilla",
+              "value": 11.666666666666666,
+              "count": 3
+            },
+            {
+              "label": "Ivy Ibanez",
+              "value": 20.0,
+              "count": 1
+            },
+            {
+              "label": "Elyse Howard",
+              "value": 10.0,
+              "count": 1
+            },
+            {
+              "label": "Matthew Le Maitre",
+              "value": 0.0,
+              "count": 1
+            },
+            {
+              "label": "Carl Marinovic",
+              "value": 20.0,
+              "count": 1
+            }
+          ]
+        }
+      ],
+      "error": null
+    },
+    {
+      "project_id": "2689331000000142003",
+      "project_name": "BS - Jun 26 IAS (AP)",
+      "filename": "04-bs-jun-26-ias-ap.png",
+      "tasks_total": 13,
+      "bytes_png": 136884,
+      "panels": [
+        {
+          "grouping": "Partner",
+          "people": 5,
+          "tasks_included": 13,
+          "tasks_excluded": 0,
+          "statistics": [
+            {
+              "label": "Luke Pinjuh",
+              "value": 53.333333333333336,
+              "count": 3
+            },
+            {
+              "label": "Matthew Le Maitre",
+              "value": 22.0,
+              "count": 5
+            },
+            {
+              "label": "Nicholas Bethune",
+              "value": 50.0,
+              "count": 3
+            },
+            {
+              "label": "Sam Dunbabin",
+              "value": 20.0,
+              "count": 1
+            },
+            {
+              "label": "Tahlia Sinnott",
+              "value": 60.0,
+              "count": 1
+            }
+          ]
+        },
+        {
+          "grouping": "Accountant",
+          "people": 9,
+          "tasks_included": 13,
+          "tasks_excluded": 0,
+          "statistics": [
+            {
+              "label": "Mariz Sarcilla",
+              "value": 20.0,
+              "count": 2
+            },
+            {
+              "label": "Janice Leona",
+              "value": 35.0,
+              "count": 2
+            },
+            {
+              "label": "Venus Calango",
+              "value": 10.0,
+              "count": 1
+            },
+            {
+              "label": "Ivy Ibanez",
+              "value": 60.0,
+              "count": 2
+            },
+            {
+              "label": "Elyse Howard",
+              "value": 20.0,
+              "count": 1
+            },
+            {
+              "label": "Matthew Le Maitre",
+              "value": 0.0,
+              "count": 1
+            },
+            {
+              "label": "Carl Marinovic",
+              "value": 90.0,
+              "count": 1
+            },
+            {
+              "label": "Tahlia Sinnott",
+              "value": 60.0,
+              "count": 1
+            },
+            {
+              "label": "Krissa Valdez",
+              "value": 45.0,
+              "count": 2
+            }
+          ]
+        }
+      ],
+      "error": null
+    }
+  ],
+  "delivery": {
+    "workflow": "completion-overview-cu25",
+    "attempted": false,
+    "sent": false,
+    "error": null
+  }
+}

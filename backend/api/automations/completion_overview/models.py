@@ -67,6 +67,12 @@ class ReportRequest(BaseModel):
         description="One or more recipients received from Power Automate and "
                     "returned with the generated report artifacts.",
     )
+    email_subject: str | None = Field(
+        default=None,
+        max_length=255,
+        description="Email subject returned to Power Automate. Defaults to a "
+                    "dated Completion Overview Report subject.",
+    )
     active_only: bool = Field(
         default=True, description="Only include projects Zoho marks active."
     )
@@ -158,6 +164,11 @@ class ReportRequest(BaseModel):
     def resolved_filename(self) -> str:
         return self.filename or f"report-{date.today().isoformat()}"
 
+    def resolved_email_subject(self) -> str:
+        if self.email_subject and self.email_subject.strip():
+            return self.email_subject.strip()
+        return f"Completion Overview Report - {date.today().isoformat()}"
+
 
 class ReportAccepted(BaseModel):
     """202 body — the job was queued; poll `status_url`."""
@@ -166,12 +177,20 @@ class ReportAccepted(BaseModel):
     status_url: str
 
 
+class MetricSummary(BaseModel):
+    """One displayed bar and the current tasks contributing to its percentage."""
+    label: str
+    value: float
+    count: int
+
+
 class PanelSummary(BaseModel):
     """Per-grouping detail behind one panel of a combined chart."""
     grouping: str
     people: int
     tasks_included: int
     tasks_excluded: int
+    statistics: list[MetricSummary] = Field(default_factory=list)
 
 
 class ChartResult(BaseModel):

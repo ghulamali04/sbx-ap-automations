@@ -157,8 +157,7 @@ def _status_name(task: dict, fields: dict) -> str:
 
 
 def _preparer_name(task: dict, fields: dict) -> str:
-    value = _display(_read_report_field(task, fields["preparer"]))
-    return "" if value.casefold() == "*ap" else value
+    return _display(_read_report_field(task, fields["preparer"]))
 
 
 def _infer_project_group(project_name: str) -> str:

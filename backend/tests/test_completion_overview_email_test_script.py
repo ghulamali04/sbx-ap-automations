@@ -29,6 +29,7 @@ class CompletionOverviewEmailTestScriptTests(IsolatedAsyncioTestCase):
             "webhook_url": "https://flow.example.test/report",
             "output_root": output_root,
             "batch_name": "completion-overview-email-test-fixed",
+            "email_subject": "Current completion statistics",
         }
         values.update(overrides)
         return Namespace(**values)
@@ -115,6 +116,10 @@ class CompletionOverviewEmailTestScriptTests(IsolatedAsyncioTestCase):
                 manifest["request"]["projects_include_Emails"],
                 ["first@example.com", "second@example.com"],
             )
+            self.assertEqual(
+                manifest["request"]["email_subject"],
+                "Current completion statistics",
+            )
             self.assertTrue(manifest["delivery"]["attempted"])
             self.assertTrue(manifest["delivery"]["sent"])
             self.assertEqual(
@@ -124,6 +129,10 @@ class CompletionOverviewEmailTestScriptTests(IsolatedAsyncioTestCase):
             self.assertEqual(
                 deliver.await_args.kwargs["request_emails"],
                 ["first@example.com", "second@example.com"],
+            )
+            self.assertEqual(
+                deliver.await_args.kwargs["email_subject"],
+                "Current completion statistics",
             )
 
     async def test_no_email_creates_dry_run_batch_without_delivery(self) -> None:
@@ -183,4 +192,3 @@ class CompletionOverviewEmailTestScriptTests(IsolatedAsyncioTestCase):
 
             with self.assertRaises(FileExistsError):
                 await script.generate_email_test(args)
-
