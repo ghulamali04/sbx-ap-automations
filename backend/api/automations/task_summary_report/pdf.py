@@ -26,13 +26,13 @@ _GRID = colors.HexColor("#bfbfbf")
 _CELL = ParagraphStyle(
     "cell",
     fontName="Helvetica",
-    fontSize=8,
-    leading=10,
+    fontSize=9.5,
+    leading=11.5,
     textColor=_INK,
     splitLongWords=True,
 )
 _CELL_BOLD = ParagraphStyle("cellBold", parent=_CELL, fontName="Helvetica-Bold")
-_HEAD = ParagraphStyle("head", fontName="Helvetica-Bold", fontSize=8.5, leading=10.5, textColor=colors.white)
+_HEAD = ParagraphStyle("head", fontName="Helvetica-Bold", fontSize=10, leading=12, textColor=colors.white)
 _SECTION_HEAD = ParagraphStyle(
     "sectionHead", fontName="Helvetica-Bold", fontSize=11.5, leading=14, textColor=_TEAL_TEXT, spaceAfter=5,
 )
@@ -110,9 +110,9 @@ def _header_block(data: ReportData) -> list:
 _TASK_COLUMNS = [
     ("Project Name", "project_name", 95),
     ("Task Name", "task_name", 118),
-    ("Custom Status", "custom_status", 62),
+    ("Custom Status", "custom_status", 78),
     ("Owner", "owner", 62),
-    ("Who prepares BAS/IAS", "preparer", 58),
+    ("Who prepares BAS/IAS", "preparer", 42),
     ("Cash account", "cash_account", 62),
     ("Term Deposit Value", "td_value", 58),
     ("Current Term", "td_term", 48),

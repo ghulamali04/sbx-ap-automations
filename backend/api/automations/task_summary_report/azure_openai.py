@@ -11,10 +11,6 @@ from azure.identity import (
 )
 from openai import OpenAI
 
-DEFAULT_ENDPOINT = (
-    "https://ghulamali9020-0075-resource.services.ai.azure.com/openai/v1/"
-)
-DEFAULT_DEPLOYMENT = "gpt-5.6-terra-sandbox"
 _FOUNDRY_TOKEN_SCOPE = "https://ai.azure.com/.default"
 _LOG = logging.getLogger(__name__)
 
@@ -29,12 +25,12 @@ _SYSTEM_PROMPT = (
 
 
 def endpoint() -> str:
-    value = os.getenv("AZURE_OPENAI_ENDPOINT", DEFAULT_ENDPOINT).strip()
-    return f"{value.rstrip('/')}/"
+    value = os.getenv("AZURE_OPENAI_ENDPOINT", "").strip()
+    return f"{value.rstrip('/')}/" if value else ""
 
 
 def deployment_name() -> str:
-    return os.getenv("AZURE_OPENAI_DEPLOYMENT", DEFAULT_DEPLOYMENT).strip()
+    return os.getenv("AZURE_OPENAI_DEPLOYMENT", "").strip()
 
 
 def is_configured() -> bool:
@@ -43,14 +39,7 @@ def is_configured() -> bool:
 
 @lru_cache(maxsize=1)
 def _credential():
-    # Report summaries run inside an unattended background job (the queue trigger
-    # in the cloud, an asyncio task locally), so an *interactive* credential must
-    # never be used — a device-code / browser prompt would block the job forever
-    # with no one to answer it, leaving the job stuck at "running" and no PDF.
-    # DefaultAzureCredential is non-interactive: in Azure it uses the Function
-    # App's managed identity; locally it picks up `az login` (AzureCliCredential),
-    # which is the documented local auth flow. If it can't get a token it fails
-    # fast and summarize_comments degrades to no summary rather than hanging.
+   
     return DefaultAzureCredential(exclude_interactive_browser_credential=True)
 
 
