@@ -26,15 +26,15 @@ _GRID = colors.HexColor("#bfbfbf")
 _CELL = ParagraphStyle(
     "cell",
     fontName="Helvetica",
-    fontSize=8,
-    leading=10,
+    fontSize=10.5,
+    leading=13,
     textColor=_INK,
     splitLongWords=True,
 )
 _CELL_BOLD = ParagraphStyle("cellBold", parent=_CELL, fontName="Helvetica-Bold")
-_HEAD = ParagraphStyle("head", fontName="Helvetica-Bold", fontSize=8.5, leading=10.5, textColor=colors.white)
+_HEAD = ParagraphStyle("head", fontName="Helvetica-Bold", fontSize=11, leading=13.5, textColor=colors.white)
 _SECTION_HEAD = ParagraphStyle(
-    "sectionHead", fontName="Helvetica-Bold", fontSize=11.5, leading=14, textColor=_TEAL_TEXT, spaceAfter=5,
+    "sectionHead", fontName="Helvetica-Bold", fontSize=15, leading=18, textColor=_TEAL_TEXT, spaceAfter=7,
 )
 _SELECTED_COMMENTS_TITLE = "Comments Summary"
 
@@ -83,24 +83,24 @@ def _header_block(data: ReportData) -> list:
     )
     return [
         Paragraph("ADVISORY PARTNERS", ParagraphStyle(
-            "masthead", fontName="Helvetica-Bold", fontSize=10, leading=14, textColor=_TEAL_TEXT, spaceAfter=2,
+            "masthead", fontName="Helvetica-Bold", fontSize=13, leading=17, textColor=_TEAL_TEXT, spaceAfter=3,
         )),
         Paragraph(escape(data.title), ParagraphStyle(
-            "title", fontName="Helvetica-Bold", fontSize=19, leading=23, textColor=_INK, spaceAfter=7,
+            "title", fontName="Helvetica-Bold", fontSize=24, leading=29, textColor=_INK, spaceAfter=9,
         )),
         Paragraph(
             f"<b>Head Client ID:</b> {escape(data.head_client_id)}",
             ParagraphStyle(
                 "headClientId",
                 fontName="Helvetica",
-                fontSize=11,
-                leading=14,
+                fontSize=13,
+                leading=17,
                 textColor=_INK,
-                spaceAfter=4,
+                spaceAfter=5,
             ),
         ),
         Paragraph(subtitle, ParagraphStyle(
-            "subtitle", fontName="Helvetica-Oblique", fontSize=10, leading=14, textColor=_MUTED, spaceAfter=13,
+            "subtitle", fontName="Helvetica-Oblique", fontSize=12, leading=16, textColor=_MUTED, spaceAfter=15,
         )),
     ]
 

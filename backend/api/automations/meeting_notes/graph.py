@@ -147,8 +147,13 @@ async def get_transcript_metadata(resource: str) -> dict:
 
 
 async def get_transcript_content(resource: str) -> str:
-    """Return the transcript body as WebVTT text (speaker-attributed)."""
-    url = f"{_normalise_resource(resource)}/content"
+    """Return the transcript body as WebVTT text (speaker-attributed).
+
+    Accepts either a transcript resource path or a full transcriptContentUrl (which
+    already ends in /content) — appending /content is idempotent.
+    """
+    base = _normalise_resource(resource).rstrip("/")
+    url = base if base.endswith("/content") else f"{base}/content"
     async with httpx.AsyncClient(timeout=60) as client:
         resp = await client.get(
             url,

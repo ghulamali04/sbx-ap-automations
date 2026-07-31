@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from datetime import date
 
 from pydantic import BaseModel, Field, field_validator
@@ -101,6 +102,25 @@ class ReportRequest(BaseModel):
     @classmethod
     def normalize_project_emails(cls, value) -> list[str]:
         return normalize_email_recipients(value)
+
+    @field_validator("email_subject", mode="before")
+    @classmethod
+    def normalize_email_subject(cls, value) -> str | None:
+        """Clean the caller-supplied subject before it reaches the email/webhook.
+
+        Blank (or whitespace-only) collapses to None so `resolved_email_subject`
+        can fall back to the dated default. Control characters — CR/LF above all —
+        are stripped to prevent header injection, and internal runs of whitespace
+        are collapsed to single spaces.
+        """
+        if value is None:
+            return None
+        text = str(value)
+        # Drop C0/C1 control characters (includes CR, LF, tabs) then collapse
+        # any remaining whitespace runs to a single space.
+        text = re.sub(r"[\x00-\x1f\x7f-\x9f]", " ", text)
+        text = re.sub(r"\s+", " ", text).strip()
+        return text or None
 
     @field_validator(
         "projects_include_IDs",
