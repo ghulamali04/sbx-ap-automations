@@ -112,11 +112,7 @@ def _normalise_resource(resource: str) -> str:
     return f"{graph_base()}/{resource.lstrip('/')}"
 
 
-async def get_transcript_metadata(resource: str) -> dict:
-    """Fetch the callTranscript object (meetingId, meetingOrganizer, timestamps)."""
-    url = _normalise_resource(resource)
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.get(url, headers=await _auth_headers())
+def _raise_for_transcript_error(resp: httpx.Response, *, what: str) -> None:
     if resp.status_code == 403 and "GraphAccessToTranscriptsDisabled" in resp.text:
         # The tenant switch from section 3.2 has been turned off. Say so plainly
         # rather than surfacing an opaque 403 — this is the well-meaning-security-
@@ -125,10 +121,28 @@ async def get_transcript_metadata(resource: str) -> dict:
             "Graph API access to transcripts is disabled for the tenant "
             "(GraphAccessToTranscriptsDisabled). An admin must re-enable it."
         )
+    if resp.status_code == 403 and "RSC permission evaluation" in resp.text:
+        # Distinct from the app-registration permissions: per-resource GETs
+        # (as opposed to the bulk getAllTranscripts function) additionally need
+        # a Teams application access policy granted to the organiser. See the
+        # README's "One-time admin setup" step 6.
+        raise RuntimeError(
+            f"{what} failed: no application access policy grants this app "
+            "access to this user's online meetings. Run New-CsApplicationAccessPolicy "
+            "/ Grant-CsApplicationAccessPolicy for this app id (see README)."
+        )
     if resp.status_code != 200:
         raise RuntimeError(
-            f"Transcript metadata fetch failed (HTTP {resp.status_code}): {resp.text[:300]}"
+            f"{what} failed (HTTP {resp.status_code}): {resp.text[:300]}"
         )
+
+
+async def get_transcript_metadata(resource: str) -> dict:
+    """Fetch the callTranscript object (meetingId, meetingOrganizer, timestamps)."""
+    url = _normalise_resource(resource)
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.get(url, headers=await _auth_headers())
+    _raise_for_transcript_error(resp, what="Transcript metadata fetch")
     return resp.json()
 
 
@@ -141,10 +155,7 @@ async def get_transcript_content(resource: str) -> str:
             headers=await _auth_headers(),
             params={"$format": "text/vtt"},
         )
-    if resp.status_code != 200:
-        raise RuntimeError(
-            f"Transcript content fetch failed (HTTP {resp.status_code}): {resp.text[:300]}"
-        )
+    _raise_for_transcript_error(resp, what="Transcript content fetch")
     return resp.text
 
 
@@ -201,6 +212,21 @@ async def list_transcripts_for_user(
     return transcripts
 
 
+async def get_online_meeting(
+    organizer_id: str, meeting_id: str, *, select: str = "subject,participants"
+) -> dict:
+    """Fetch the onlineMeeting itself (application permission OnlineMeetings.Read.All) —
+    the callTranscript object has no subject/attendee list, only this does.
+    """
+    url = f"{graph_base()}/users/{organizer_id}/onlineMeetings/{meeting_id}"
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.get(
+            url, headers=await _auth_headers(), params={"$select": select}
+        )
+    _raise_for_transcript_error(resp, what=f"Online meeting fetch for {meeting_id}")
+    return resp.json()
+
+
 # ---------- users / routing lookups ----------
 
 async def get_user(user_id: str, *, select: str = "id,displayName,mail,userPrincipalName,department,jobTitle") -> dict:
@@ -242,63 +268,6 @@ async def user_group_names(user_id: str) -> set[str]:
             url = body.get("@odata.nextLink")
             params = None  # nextLink already carries the query
     return names
-
-
-# ---------- mail ----------
-
-async def send_mail(*, sender_id: str, to_email: str, subject: str, html_body: str) -> None:
-    """Send the formatted note via Graph sendMail as the configured sender.
-
-    sendMail is application-permission (Mail.Send). sender_id is the mailbox the
-    mail is sent as — typically a dedicated service mailbox, configurable so the
-    firm decides whether notes come "from" the adviser or a central address.
-    """
-    url = f"{graph_base()}/users/{sender_id}/sendMail"
-    payload = {
-        "message": {
-            "subject": subject,
-            "body": {"contentType": "HTML", "content": html_body},
-            "toRecipients": [{"emailAddress": {"address": to_email}}],
-        },
-        "saveToSentItems": False,
-    }
-    async with httpx.AsyncClient(timeout=60) as client:
-        resp = await client.post(url, headers=await _auth_headers(), json=payload)
-    if resp.status_code not in (200, 202):
-        raise RuntimeError(
-            f"sendMail failed (HTTP {resp.status_code}): {resp.text[:300]}"
-        )
-
-
-# ---------- calendar ----------
-
-async def create_calendar_event(
-    user_id: str,
-    *,
-    subject: str,
-    start_iso: str,
-    end_iso: str,
-    body_html: str = "",
-    timezone: str = "UTC",
-) -> dict:
-    """Create a reminder event on a mailbox's calendar (application permission
-    Calendars.ReadWrite) — used for agreed follow-ups (options paper, section 9
-    Phase 2: "calendar event creation for agreed follow-ups")."""
-    url = f"{graph_base()}/users/{user_id}/events"
-    payload = {
-        "subject": subject,
-        "body": {"contentType": "HTML", "content": body_html},
-        "start": {"dateTime": start_iso, "timeZone": timezone},
-        "end": {"dateTime": end_iso, "timeZone": timezone},
-        "isReminderOn": True,
-    }
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.post(url, headers=await _auth_headers(), json=payload)
-    if resp.status_code not in (200, 201):
-        raise RuntimeError(
-            f"Calendar event create failed for {user_id} (HTTP {resp.status_code}): {resp.text[:300]}"
-        )
-    return resp.json()
 
 
 # ---------- subscriptions ----------

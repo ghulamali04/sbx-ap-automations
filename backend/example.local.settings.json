@@ -17,12 +17,23 @@
     "CORS_ALLOW_ORIGINS": "",
     "KEY_VAULT_URI": "",
     "ZOHO_TOKENS_SECRET_NAME": "zoho-tokens",
-    "AZURE_OPENAI_ENDPOINT": "https://ghulamali9020-0075-resource.services.ai.azure.com/openai/v1/",
-    "AZURE_OPENAI_DEPLOYMENT": "gpt-5.6-terra-sandbox",
+    "AZURE_OPENAI_ENDPOINT": "",
+    "AZURE_OPENAI_DEPLOYMENT": "",
     "AZURE_OPENAI_API_KEY": "",
     "AZURE_OPENAI_REASONING_EFFORT": "low",
     "AZURE_OPENAI_TEXT_VERBOSITY": "low",
     "SELECTED_COMMENTS_CONCURRENCY": "8",
-    "TERM_DEPOSIT_PROJECT_NAMES": "FP - Term Deposits"
+    "TERM_DEPOSIT_PROJECT_NAMES": "FP - Term Deposits",
+    "GRAPH_TENANT_ID": "",
+    "GRAPH_CLIENT_ID": "",
+    "GRAPH_CLIENT_SECRET": "",
+    "MEETING_NOTES_NOTIFICATION_URL": "",
+    "MEETING_NOTES_LIFECYCLE_URL": "",
+    "MEETING_NOTES_CLIENT_STATE": "",
+    "MEETING_NOTES_ADMIN_KEY": "",
+    "MEETING_NOTES_DRY_RUN": "true",
+    "MEETING_NOTES_AREAS": "",
+    "MEETING_NOTES_WEBHOOK_URL": "",
+    "MEETING_NOTES_ALLOWED_HOSTS": ""
   }
 }

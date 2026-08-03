@@ -11,4 +11,3 @@ httpx
 matplotlib
 reportlab
 openai
-python-dateutil

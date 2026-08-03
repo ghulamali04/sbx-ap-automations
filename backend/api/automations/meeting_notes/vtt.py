@@ -1,19 +1,4 @@
-"""
-Turn a Teams WebVTT transcript into clean, speaker-attributed plain text.
 
-Teams transcript .vtt cues carry the speaker name in a <v ...> voice tag:
-
-    WEBVTT
-
-    00:00:03.000 --> 00:00:06.480
-    <v Jane Adviser>Thanks for joining today.</v>
-
-We collapse the cues into "Speaker: line" text and merge consecutive lines from
-the same speaker, which is both cheaper to send to the model and easier for it to
-attribute correctly. Speaker attribution must be on at tenant level or the names
-are absent (options paper, section 3.2) — we degrade to unattributed text rather
-than fail if that happens.
-"""
 from __future__ import annotations
 
 import re

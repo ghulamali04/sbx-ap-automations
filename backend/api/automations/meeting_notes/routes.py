@@ -3,11 +3,12 @@ from __future__ import annotations
 
 import logging
 import os
+import secrets
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request, Response
 from fastapi.responses import PlainTextResponse
 
-from api.automations.meeting_notes import jobs, queue, subscriptions, artifacts
+from api.automations.meeting_notes import jobs, queue, subscriptions
 from api.automations.meeting_notes.models import (
     ChangeNotificationCollection,
     NoteJobRequest,
@@ -25,26 +26,34 @@ def _dry_run_default() -> bool:
 
 
 def _client_state_ok(received: str | None) -> bool:
-    """Constant-ish check that the notification carries our secret clientState."""
+    """Constant-time check that the notification carries our secret clientState."""
     expected = subscriptions.client_state()
     if not expected:
         return True  # no secret configured -> nothing to verify
-    return received == expected
+    return bool(received) and secrets.compare_digest(received, expected)
+
+
+def require_admin_key(x_admin_key: str | None = Header(default=None)) -> None:
+    """Gate the admin/status endpoints behind a shared secret.
+
+    The Function App itself runs with AuthLevel.ANONYMOUS (api/main.py's ASGI
+    app has no per-route auth otherwise), so without this, anyone who can reach
+    the deployed URL could create/list Graph subscriptions or read a job's
+    organiser email. No key configured -> fail closed once a webhook is set up
+    for real use; local dev with nothing configured stays open for convenience.
+    """
+    expected = os.getenv("MEETING_NOTES_ADMIN_KEY", "").strip()
+    if not expected:
+        return
+    if not x_admin_key or not secrets.compare_digest(x_admin_key, expected):
+        raise HTTPException(status_code=401, detail="Missing or invalid X-Admin-Key header.")
 
 
 # ---------- Graph webhook ----------
 
 @router.post("/notifications")
 async def notifications(request: Request, validationToken: str | None = None):
-    """Receive transcript-created notifications from the tenant-wide subscription.
-
-    Two shapes arrive here:
-      * Subscription validation — Graph calls with ?validationToken=... and no
-        body, and expects the raw token echoed as text/plain within 10 seconds.
-      * Real notifications — a JSON batch. We validate clientState, enqueue one
-        job per transcript, and return fast; all fetching/summarising happens on
-        the queue so we never miss Graph's short response window.
-    """
+    
     if validationToken is not None:
         return PlainTextResponse(content=validationToken, status_code=200)
 
@@ -85,12 +94,7 @@ async def lifecycle(
     background: BackgroundTasks,
     validationToken: str | None = None,
 ):
-    """Handle subscription lifecycle events (reauthorization, removal, missed).
-
-    reauthorizationRequired and subscriptionRemoved both mean the pipeline is
-    about to stop receiving notifications, which silently loses meetings — so we
-    renew/recreate immediately, in the background to keep the response prompt.
-    """
+    
     if validationToken is not None:
         return PlainTextResponse(content=validationToken, status_code=200)
 
@@ -116,7 +120,12 @@ async def _safe_renew() -> None:
 
 # ---------- Subscription admin ----------
 
-@router.post("/subscriptions", response_model=SubscriptionInfo, status_code=201)
+@router.post(
+    "/subscriptions",
+    response_model=SubscriptionInfo,
+    status_code=201,
+    dependencies=[Depends(require_admin_key)],
+)
 async def create_subscription():
     """Create the tenant-wide transcript subscription (run once by an admin)."""
     try:
@@ -125,7 +134,11 @@ async def create_subscription():
         raise HTTPException(status_code=502, detail=f"Subscription create failed: {exc}")
 
 
-@router.get("/subscriptions", response_model=list[SubscriptionInfo])
+@router.get(
+    "/subscriptions",
+    response_model=list[SubscriptionInfo],
+    dependencies=[Depends(require_admin_key)],
+)
 async def get_subscriptions():
     """List the transcript subscriptions this app owns."""
     try:
@@ -134,7 +147,11 @@ async def get_subscriptions():
         raise HTTPException(status_code=502, detail=f"Subscription list failed: {exc}")
 
 
-@router.post("/subscriptions/renew", response_model=list[SubscriptionInfo])
+@router.post(
+    "/subscriptions/renew",
+    response_model=list[SubscriptionInfo],
+    dependencies=[Depends(require_admin_key)],
+)
 async def renew_subscriptions():
     """Renew any transcript subscription near expiry (or create one if missing)."""
     try:
@@ -143,41 +160,16 @@ async def renew_subscriptions():
         raise HTTPException(status_code=502, detail=f"Subscription renewal failed: {exc}")
 
 
-# ---------- Job status / note viewing ----------
+# ---------- Job status ----------
 
-@router.get("/{job_id}", name="get_meeting_note_status", response_model=NoteJobResult)
-async def get_status(job_id: str, *, request: Request):
+@router.get(
+    "/{job_id}",
+    name="get_meeting_note_status",
+    response_model=NoteJobResult,
+    dependencies=[Depends(require_admin_key)],
+)
+async def get_status(job_id: str):
     job = jobs.get_job(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Unknown job_id.")
-    if artifacts.load_note(job_id) is not None:
-        job.note_url = str(request.url_for("view_meeting_note", job_id=job_id))
     return job
-
-
-@router.get("/{job_id}/note", name="view_meeting_note", response_class=Response)
-async def view_note(job_id: str):
-    html = artifacts.load_note(job_id)
-    if html is None:
-        job = jobs.get_job(job_id)
-        if job is None:
-            raise HTTPException(status_code=404, detail="Unknown job_id.")
-        raise HTTPException(
-            status_code=404,
-            detail=f"No note stored for this job (status={job.status!r}).",
-        )
-    return Response(content=html, media_type="text/html; charset=utf-8")
-
-
-@router.get("/{job_id}/note.pdf", name="view_meeting_note_pdf", response_class=Response)
-async def view_note_pdf(job_id: str):
-    pdf_bytes = artifacts.load_note_pdf(job_id)
-    if pdf_bytes is None:
-        job = jobs.get_job(job_id)
-        if job is None:
-            raise HTTPException(status_code=404, detail="Unknown job_id.")
-        raise HTTPException(
-            status_code=404,
-            detail=f"No PDF stored for this job (status={job.status!r}).",
-        )
-    return Response(content=pdf_bytes, media_type="application/pdf")

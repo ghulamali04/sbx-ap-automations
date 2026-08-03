@@ -1,15 +1,4 @@
-"""
-Business-area routing.
 
-The complaint the project exists to solve is that Financial Planning and Business
-Services notes are formatted inconsistently. Routing keeps them consistently
-different: the organiser's Entra group or department picks the area, the area
-picks the prompt and the template (options paper, section 4).
-
-If the organiser matches neither area we fall back to a general template and set
-`flagged` — a wrong-format note is worse than an obviously generic one, so we
-never guess.
-"""
 from __future__ import annotations
 
 import json

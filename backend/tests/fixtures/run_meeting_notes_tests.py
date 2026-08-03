@@ -1,45 +1,52 @@
 """Run all meeting_notes manual test cases in one go and print PASS/FAIL per case."""
 import asyncio
+from datetime import datetime, timezone
 
 from api.settings import load_local_settings
 
 load_local_settings()
 
-from api.automations.meeting_notes import artifacts, graph, service
+from api.automations.meeting_notes import graph, service
 from api.automations.meeting_notes.models import NoteJobRequest
 
 TEST_USER = "gali@AdvisoryPartners603.onmicrosoft.com"
 
+# Meeting metadata for the transcript_vtt local-testing path — a .vtt file only
+# carries spoken text, so these stand in for what get_transcript_metadata /
+# get_online_meeting supply when Graph is reachable (see models.py's *_override
+# hooks). Values reflect a realistic scheduled meeting, not placeholder data.
+SAMPLE_MEETING_DATE = datetime.now(timezone.utc).isoformat()
+SAMPLE_MEETING_TITLE = "Gali Client — Quarterly Financial Planning Review"
+SAMPLE_ATTENDEE_EMAILS = [
+    "gali@AdvisoryPartners603.onmicrosoft.com",  # organiser (adviser)
+    "client.gali@example.test",  # client
+    "paraplanner@AdvisoryPartners603.onmicrosoft.com",  # cc'd colleague
+]
 
-async def case_1_fake_transcript_pipeline() -> None:
-    """Fake .vtt -> parse -> Azure OpenAI note -> HTML + PDF render (no Graph, no email).
 
-    organizer_id_override=TEST_USER is a test-only hook (see models.py) so the
-    fake transcript still exercises routing and calendar scheduling exactly like
-    a real one would, keyed off Gali's real Graph identity.
-    """
+async def case_1_local_transcript_pipeline() -> None:
+   
     vtt = open("tests/fixtures/sample_meeting.vtt", encoding="utf-8").read()
     req = NoteJobRequest(
         transcript_resource="communications/onlineMeetings('test-meeting')/transcripts('test-transcript')",
         transcript_vtt=vtt,
         organizer_id_override=TEST_USER,
+        meeting_date_override=SAMPLE_MEETING_DATE,
+        meeting_title_override=SAMPLE_MEETING_TITLE,
+        attendee_emails_override=SAMPLE_ATTENDEE_EMAILS,
         dry_run=True,
     )
     result = await service.run_note_job(req, job_id="test-1")
-    html = artifacts.load_note("test-1")
-    pdf_bytes = artifacts.load_note_pdf("test-1")
-    if result.error or not html or not pdf_bytes:
-        print(f"[FAIL] case_1_fake_transcript_pipeline: {result.error}")
+    if result.error:
+        print(f"[FAIL] case_1_local_transcript_pipeline: {result.error}")
         return
-    with open("tests/fixtures/sample_note_output.html", "w", encoding="utf-8") as f:
-        f.write(html)
-    with open("tests/fixtures/sample_note_output.pdf", "wb") as f:
-        f.write(pdf_bytes)
     print(
-        f"[PASS] case_1_fake_transcript_pipeline: html={len(html)} chars, "
-        f"pdf={len(pdf_bytes)} bytes, business_area={result.business_area!r}"
+        f"[PASS] case_1_local_transcript_pipeline: business_area={result.business_area!r}, "
+        f"organizer_email={result.organizer_email!r}"
     )
-    print(f"       calendar_events: {result.calendar_events}")
+    print(f"       meeting_date={result.meeting_date!r}")
+    print(f"       meeting_title={result.meeting_title!r}")
+    print(f"       attendee_emails={result.attendee_emails!r}")
 
 
 async def case_2_real_user_lookup() -> None:
@@ -62,10 +69,66 @@ async def case_3_real_transcript_listing() -> None:
         print(f"[FAIL] case_3_real_transcript_listing: {exc}")
 
 
+async def case_4_real_transcript_full_pipeline() -> None:
+   
+    try:
+        transcripts = await graph.list_transcripts_for_user(TEST_USER)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[FAIL] case_4_real_transcript_full_pipeline: transcript listing failed: {exc}")
+        return
+    if not transcripts:
+        print("[SKIP] case_4_real_transcript_full_pipeline: no real transcripts found for this user")
+        return
+
+    latest = transcripts[0]
+   
+    content_url = latest["transcriptContentUrl"]
+    resource = content_url.split("/v1.0/", 1)[1].removesuffix("/content")
+    req = NoteJobRequest(transcript_resource=resource, dry_run=True)
+    result = await service.run_note_job(req, job_id="test-4")
+    if result.error:
+        print(f"[FAIL] case_4_real_transcript_full_pipeline: {result.error}")
+        return
+    print(
+        f"[PASS] case_4_real_transcript_full_pipeline: organizer_email={result.organizer_email!r}, "
+        f"business_area={result.business_area!r}"
+    )
+    print(f"       meeting_date={result.meeting_date!r}")
+    print(f"       meeting_title={result.meeting_title!r}  <- needs OnlineMeetings.Read.All if this is None")
+    print(f"       attendee_emails={result.attendee_emails!r}")
+
+
+async def case_5_live_power_automate_handoff() -> None:
+   
+    vtt = open("tests/fixtures/sample_meeting.vtt", encoding="utf-8").read()
+    req = NoteJobRequest(
+        transcript_resource="communications/onlineMeetings('test-meeting')/transcripts('test-transcript')",
+        transcript_vtt=vtt,
+        organizer_id_override=TEST_USER,
+        meeting_date_override=SAMPLE_MEETING_DATE,
+        meeting_title_override=SAMPLE_MEETING_TITLE,
+        attendee_emails_override=SAMPLE_ATTENDEE_EMAILS,
+        dry_run=False,
+    )
+    result = await service.run_note_job(req, job_id="test-5")
+    status = "PASS" if result.delivered and not result.error else "FAIL"
+    print(f"[{status}] case_5_live_power_automate_handoff: delivered={result.delivered}, error={result.error}")
+
+
 async def main() -> None:
-    await case_1_fake_transcript_pipeline()
+    await case_1_local_transcript_pipeline()
     await case_2_real_user_lookup()
     await case_3_real_transcript_listing()
+    await case_4_real_transcript_full_pipeline()
+    print(
+        "\nNote: case_5_live_power_automate_handoff (real webhook call, sends a "
+        "real email) is not run automatically. Run with --live to include it."
+    )
 
 
-asyncio.run(main())
+if __name__ == "__main__":
+    import sys
+
+    asyncio.run(main())
+    if "--live" in sys.argv:
+        asyncio.run(case_5_live_power_automate_handoff())

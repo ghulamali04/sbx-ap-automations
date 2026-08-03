@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 import os
 
-from api.automations.meeting_notes import artifacts, azure_openai, calendar, graph, notes, pdf, vtt
+from api.automations.meeting_notes import graph, power_automate, vtt
 from api.automations.meeting_notes.models import NoteJobRequest, NoteJobResult
 from api.automations.meeting_notes.routing import resolve_business_area
 
@@ -17,11 +17,6 @@ def _identity_from_set(identity_set: dict | None) -> tuple[str | None, str | Non
         return None, None
     user = identity_set.get("user") or {}
     return user.get("id"), user.get("displayName")
-
-
-def _mail_sender_id(organizer_id: str | None) -> str:
-    """Mailbox that Graph sendMail sends as (a service mailbox, or the organiser)."""
-    return os.getenv("MEETING_NOTES_MAIL_SENDER", "").strip() or (organizer_id or "")
 
 
 async def run_note_job(req: NoteJobRequest, job_id: str = "") -> NoteJobResult:
@@ -45,6 +40,7 @@ async def run_note_job(req: NoteJobRequest, job_id: str = "") -> NoteJobResult:
     if req.transcript_vtt is not None:
         vtt_text = req.transcript_vtt
         organizer_id = req.organizer_id_override
+        meeting_date = req.meeting_date_override
     else:
         try:
             metadata = await graph.get_transcript_metadata(req.transcript_resource)
@@ -71,7 +67,8 @@ async def run_note_job(req: NoteJobRequest, job_id: str = "") -> NoteJobResult:
     result.organizer_id = organizer_id
     result.organizer_name = organizer_name
 
-    # 2. Business-area routing from the organiser (Entra group / department).
+    # 2. Business-area routing from the organiser (Entra group / department) —
+    # sent along as context; the Power Automate flow decides what to do with it.
     user: dict | None = None
     group_names: set[str] = set()
     if organizer_id:
@@ -89,74 +86,65 @@ async def run_note_job(req: NoteJobRequest, job_id: str = "") -> NoteJobResult:
     area = resolve_business_area(user, group_names)
     result.organizer_name = organizer_name
     result.business_area = area.display_name
-    result.template = area.template
 
-    # 3. Structured notes, then 4. rendered HTML.
-    note = await azure_openai.generate_note(transcript_text, area)
-    html = notes.render_note_html(
-        note,
-        area=area,
-        subject=meeting_subject,
-        organizer_name=organizer_name,
-        meeting_date=meeting_date,
-    )
-
-    # 5. Store before delivery — a mail failure should still leave a readable note.
-    if job_id:
+    # 2b. Meeting title + attendee emails — the callTranscript object carries
+    # neither, only the onlineMeeting itself does. Best-effort: a meeting whose
+    # title/roster can't be fetched still gets its transcript handed off.
+    meeting_title: str | None = None
+    attendee_emails: list[str] = []
+    if req.transcript_vtt is not None:
+        # No real Graph meeting behind a local test transcript — use the test
+        # hooks instead of calling Graph (which would just 400 on a synthetic
+        # meeting id).
+        meeting_title = req.meeting_title_override
+        attendee_emails = list(req.attendee_emails_override or [])
+    elif organizer_id and meeting_id:
         try:
-            artifacts.save_note(job_id, html)
-            pdf_bytes = pdf.render_note_pdf(
-                note,
-                area=area,
-                subject=meeting_subject,
-                organizer_name=organizer_name,
-                meeting_date=meeting_date,
-            )
-            artifacts.save_note_pdf(job_id, pdf_bytes)
-        except Exception as exc:  # noqa: BLE001
-            result.error = f"Note rendered but not stored: {exc}"
+            online_meeting = await graph.get_online_meeting(organizer_id, meeting_id)
+            meeting_title = online_meeting.get("subject") or None
+            participants = online_meeting.get("participants") or {}
+            emails: list[str] = []
+            seen: set[str] = set()
+            for participant in [participants.get("organizer"), *participants.get("attendees", [])]:
+                if not participant:
+                    continue
+                upn = (participant.get("upn") or "").strip()
+                if upn and upn.casefold() not in seen:
+                    seen.add(upn.casefold())
+                    emails.append(upn)
+            attendee_emails = emails
+        except Exception as exc:  # noqa: BLE001 - handoff still proceeds without this context
+            _LOG.warning("Online meeting fetch failed for %s: %s", meeting_id, exc)
 
-    # 5b. Turn agreed follow-ups into calendar reminders. Best-effort: a
-    # scheduling failure must not block the note being delivered.
-    if organizer_id:
-        result.calendar_events = await calendar.schedule_follow_ups(
-            note.follow_up_events,
-            organizer_id=organizer_id,
-            meeting_subject=meeting_subject,
-        )
+    result.meeting_date = meeting_date
+    result.meeting_title = meeting_title
+    result.attendee_emails = attendee_emails
 
-    # 6. Deliver via Graph sendMail, unless this is a dry run.
+    # 3. Hand the transcript off to Power Automate — it generates the summary
+    # and sends the email. Nothing is rendered or delivered locally.
     if req.dry_run:
         return result
 
-    recipient = result.organizer_email
-    if not recipient:
-        result.error = (
-            (result.error + " | " if result.error else "")
-            + "No organiser email resolved — note stored but not delivered."
-        )
+    webhook = power_automate.resolved_webhook()
+    if not webhook:
+        result.error = "No Power Automate webhook configured (MEETING_NOTES_WEBHOOK_URL)."
         return result
-
-    sender_id = _mail_sender_id(organizer_id)
-    if not sender_id:
-        result.error = (
-            (result.error + " | " if result.error else "")
-            + "No mail sender configured (MEETING_NOTES_MAIL_SENDER) — note stored "
-            "but not delivered."
-        )
-        return result
+    power_automate.validate_webhook_url(webhook)
 
     try:
-        await graph.send_mail(
-            sender_id=sender_id,
-            to_email=recipient,
-            subject=f"Meeting notes — {meeting_subject}",
-            html_body=html,
+        await power_automate.deliver_transcript(
+            webhook,
+            transcript_text=transcript_text,
+            meeting_subject=meeting_subject,
+            meeting_title=meeting_title,
+            meeting_date=meeting_date,
+            organizer_name=organizer_name,
+            organizer_email=result.organizer_email,
+            attendee_emails=attendee_emails,
+            business_area=result.business_area,
         )
         result.delivered = True
     except Exception as exc:  # noqa: BLE001
-        result.error = (
-            (result.error + " | " if result.error else "") + f"sendMail failed: {exc}"
-        )
+        result.error = f"Power Automate handoff failed: {exc}"
 
     return result
