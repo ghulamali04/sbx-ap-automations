@@ -54,6 +54,7 @@ class NoteJobResult(BaseModel):
     organizer_email: str | None = None
     organizer_name: str | None = None
     business_area: str | None = None
+    meeting_type: str | None = None  # AHM | SPM | FM | RM, matched from the meeting title
     meeting_date: str | None = None
     meeting_title: str | None = None
     attendee_emails: list[str] = Field(default_factory=list)

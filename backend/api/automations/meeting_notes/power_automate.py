@@ -52,6 +52,7 @@ async def deliver_transcript(
     organizer_email: str | None,
     attendee_emails: list[str] | None,
     business_area: str | None,
+    meeting_type: str | None = None,
 ) -> None:
     """POST the transcript and meeting context; the flow does the rest."""
     if not transcript_text.strip():
@@ -65,6 +66,8 @@ async def deliver_transcript(
         "organizer_email": organizer_email,
         "attendee_emails": attendee_emails or [],
         "business_area": business_area,
+        # AHM | SPM | FM | RM, matched from the meeting title; null when untagged.
+        "meeting_type": meeting_type,
     }
     attempts = max(1, int(os.getenv("POWER_AUTOMATE_DELIVERY_ATTEMPTS", "3")))
     transient_errors = (

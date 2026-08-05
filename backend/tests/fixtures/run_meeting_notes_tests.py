@@ -16,7 +16,7 @@ TEST_USER = "gali@AdvisoryPartners603.onmicrosoft.com"
 # get_online_meeting supply when Graph is reachable (see models.py's *_override
 # hooks). Values reflect a realistic scheduled meeting, not placeholder data.
 SAMPLE_MEETING_DATE = datetime.now(timezone.utc).isoformat()
-SAMPLE_MEETING_TITLE = "Gali Client — Quarterly Financial Planning Review"
+SAMPLE_MEETING_TITLE = "Gali Client — Quarterly Review Meeting"  # tags meeting_type=RM
 SAMPLE_ATTENDEE_EMAILS = [
     "gali@AdvisoryPartners603.onmicrosoft.com",  # organiser (adviser)
     "client.gali@example.test",  # client
@@ -46,6 +46,7 @@ async def case_1_local_transcript_pipeline() -> None:
     )
     print(f"       meeting_date={result.meeting_date!r}")
     print(f"       meeting_title={result.meeting_title!r}")
+    print(f"       meeting_type={result.meeting_type!r}")
     print(f"       attendee_emails={result.attendee_emails!r}")
 
 
@@ -95,6 +96,7 @@ async def case_4_real_transcript_full_pipeline() -> None:
     )
     print(f"       meeting_date={result.meeting_date!r}")
     print(f"       meeting_title={result.meeting_title!r}  <- needs OnlineMeetings.Read.All if this is None")
+    print(f"       meeting_type={result.meeting_type!r}")
     print(f"       attendee_emails={result.attendee_emails!r}")
 
 

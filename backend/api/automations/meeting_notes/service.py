@@ -5,6 +5,7 @@ import logging
 import os
 
 from api.automations.meeting_notes import graph, power_automate, vtt
+from api.automations.meeting_notes.meeting_type import resolve_meeting_type
 from api.automations.meeting_notes.models import NoteJobRequest, NoteJobResult
 from api.automations.meeting_notes.routing import resolve_business_area
 
@@ -119,6 +120,7 @@ async def run_note_job(req: NoteJobRequest, job_id: str = "") -> NoteJobResult:
     result.meeting_date = meeting_date
     result.meeting_title = meeting_title
     result.attendee_emails = attendee_emails
+    result.meeting_type = resolve_meeting_type(meeting_title)
 
     # 3. Hand the transcript off to Power Automate — it generates the summary
     # and sends the email. Nothing is rendered or delivered locally.
@@ -142,6 +144,7 @@ async def run_note_job(req: NoteJobRequest, job_id: str = "") -> NoteJobResult:
             organizer_email=result.organizer_email,
             attendee_emails=attendee_emails,
             business_area=result.business_area,
+            meeting_type=result.meeting_type,
         )
         result.delivered = True
     except Exception as exc:  # noqa: BLE001

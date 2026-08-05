@@ -13,10 +13,11 @@ Teams meeting (transcription on)
   → one tenant-wide Graph subscription (communications/onlineMeetings/getAllTranscripts)
     POSTs a webhook to  /meeting-notes/notifications
   → this app fetches the .vtt, parses it to speaker-attributed text,
-    resolves the organiser's business area, and the meeting's title + roster,
+    resolves the organiser's business area, the meeting's title + roster, and
+    the meeting type (AHM/SPM/FM/RM) from the title,
   → POSTs {transcript_text, meeting_subject, meeting_title, meeting_date,
-    organizer_name, organizer_email, attendee_emails, business_area} to
-    MEETING_NOTES_WEBHOOK_URL
+    organizer_name, organizer_email, attendee_emails, business_area,
+    meeting_type} to MEETING_NOTES_WEBHOOK_URL
   → the Power Automate flow generates the summary and sends the email.
 ```
 
@@ -30,6 +31,7 @@ required.
 | `graph.py` | App-only Microsoft Graph client (token, transcript, user/group, subscription CRUD) |
 | `vtt.py` | Parse Teams WebVTT into speaker-attributed text |
 | `routing.py` | Organiser → business area (falls back to a flagged general area) |
+| `meeting_type.py` | Meeting title → meeting type (AHM/SPM/FM/RM), or `None` when untagged |
 | `power_automate.py` | Validate + POST the transcript/context to the Power Automate flow |
 | `service.py` | End-to-end orchestration for one transcript |
 | `queue.py` / `jobs.py` | Durable queue + job store (local fallbacks for dev) |
