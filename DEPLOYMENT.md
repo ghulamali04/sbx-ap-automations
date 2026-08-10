@@ -227,6 +227,15 @@ The script is idempotent and self-verifying. It will:
 
 Target another environment with `ENV_FILE=scripts/prod.env ./scripts/configure-azure-sandbox.sh`.
 
+> **Troubleshooting — step 3 stalls for ~5 minutes then `ERROR: still cannot write secrets`.**
+> On a **soft-delete-enabled** vault this usually is *not* an RBAC problem (the log will already say `caller: already has 'Key Vault Secrets Officer'`). The data-plane preflight writes and deletes a throwaway `rbac-preflight` secret; soft-delete leaves that name in a *deleted-but-recoverable* state, so the next run's write fails with `Conflict / ObjectIsDeletedButRecoverable` on every retry. Purge the stuck secret, then re-run the script:
+>
+> ```bash
+> az keyvault secret purge --vault-name kv-ap-automations-sbx --name rbac-preflight
+> ```
+>
+> Use the vault named by `KEY_VAULT` in your env file. List anything else stuck in the same state with `az keyvault secret list-deleted --vault-name kv-ap-automations-sbx -o table`.
+
 ### 5.3 Grant storage roles (required for background jobs)
 
 ```bash

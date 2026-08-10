@@ -16,6 +16,8 @@ from api.automations.completion_overview.routes import router as completion_rout
 from api.automations.task_summary_report.routes import router as task_summary_router
 from api.automations.task_summary_report import azure_openai
 from api.automations.meeting_notes.routes import router as meeting_notes_router
+from api.automations.class_pie.routes import router as class_router
+from api.automations.praemium.routes import router as praemium_router
 
 app = FastAPI(
     title="Advisory Partners Automations API",
@@ -85,3 +87,5 @@ app.include_router(zoho_router)
 app.include_router(completion_router)
 app.include_router(task_summary_router)
 app.include_router(meeting_notes_router)
+app.include_router(class_router)
+app.include_router(praemium_router)

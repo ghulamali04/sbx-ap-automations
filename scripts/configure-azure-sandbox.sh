@@ -181,6 +181,35 @@ az functionapp config appsettings set -g "$RG" -n "$FUNCTION_APP" --settings \
   -o none
 
 # ---------------------------------------------------------------------------
+# 4b. Clear any stale OAuth token bundle.
+# The stored bundle's refresh token is bound to the PREVIOUS ZOHO_CLIENT_ID, so
+# after a credential swap it can no longer be refreshed (Zoho returns
+# invalid_client) — leaving it in place would just serve a dead token until it
+# expires. Deleting it forces the fresh /login below, which writes a new bundle.
+# NOTE: this runs on every invocation, so re-running the script always requires
+# re-consenting via /login afterwards, even for unrelated changes.
+# ---------------------------------------------------------------------------
+echo ">> Clearing any existing '${ZOHO_TOKENS_SECRET_NAME}' bundle (forces a fresh /login)"
+if az keyvault secret show --vault-name "$KEY_VAULT" \
+     --name "$ZOHO_TOKENS_SECRET_NAME" -o none 2>/dev/null; then
+  az keyvault secret delete --vault-name "$KEY_VAULT" \
+    --name "$ZOHO_TOKENS_SECRET_NAME" -o none
+  # Soft-delete leaves a recoverable secret of the same name, which blocks the
+  # next /login from re-creating it (409 Conflict). Purge it when the vault has
+  # soft-delete enabled so the name is free again.
+  if [[ "$(az keyvault show -n "$KEY_VAULT" \
+             --query properties.enableSoftDelete -o tsv 2>/dev/null)" == "true" ]]; then
+    echo "   purging the soft-deleted secret"
+    az keyvault secret purge --vault-name "$KEY_VAULT" \
+      --name "$ZOHO_TOKENS_SECRET_NAME" -o none 2>/dev/null \
+      || echo "   (purge skipped — purge protection may require manual cleanup)"
+  fi
+  echo "   cleared — re-consent via /login (see below)"
+else
+  echo "   none found — nothing to clear"
+fi
+
+# ---------------------------------------------------------------------------
 # 5. Restart (KEY_VAULT_URI is read at module import — needs a fresh process)
 # ---------------------------------------------------------------------------
 echo ">> Restarting the Function App"

@@ -42,7 +42,16 @@ class ZohoAuth:
                 status_code=400,
                 detail=f"Zoho token exchange failed: {error_detail}"
             )
-        return response.json()
+        data = response.json()
+        # Zoho returns HTTP 200 even on failure, with the reason in the body
+        # (e.g. {"error": "invalid_code"}). Guard against storing a bundle whose
+        # access_token is null and reporting it as success.
+        if data.get("error") or not data.get("access_token"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Zoho token exchange failed: {data}",
+            )
+        return data
 
     async def refresh_access_token(self, refresh_token: str) -> dict:
         """Exchange a long-lived refresh token for a fresh access token.
@@ -66,4 +75,12 @@ class ZohoAuth:
                 status_code=401,
                 detail=f"Zoho token refresh failed: {error_detail}",
             )
-        return response.json()
+        data = response.json()
+        # As with the code exchange, Zoho signals refresh failures in a 200 body
+        # (e.g. {"error": "invalid_code"}); treat a missing access_token as failure.
+        if data.get("error") or not data.get("access_token"):
+            raise HTTPException(
+                status_code=401,
+                detail=f"Zoho token refresh failed: {data}",
+            )
+        return data

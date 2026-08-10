@@ -1,5 +1,7 @@
 local.settings.json
 .zoho_tokens.json
+.class_tokens.json
+.praemium_tokens.json
 .DS_Store
 .env
 __pycache__/
