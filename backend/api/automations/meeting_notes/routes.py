@@ -8,12 +8,13 @@ import secrets
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request, Response
 from fastapi.responses import PlainTextResponse
 
-from api.automations.meeting_notes import jobs, queue, subscriptions
+from api.automations.meeting_notes import graph, jobs, queue, subscriptions
 from api.automations.meeting_notes.models import (
     ChangeNotificationCollection,
     NoteJobRequest,
     NoteJobResult,
     SubscriptionInfo,
+    TranscriptFetchIn,
 )
 
 _LOG = logging.getLogger(__name__)
@@ -158,6 +159,39 @@ async def renew_subscriptions():
         return await subscriptions.renew_due()
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"Subscription renewal failed: {exc}")
+
+
+# ---------- Diagnostics (Graph read-only, matches the Insomnia collection) ----------
+# Gated behind the same X-Admin-Key as the rest of the module — these expose
+# organiser identity and transcript content, not just status.
+
+@router.get("/users/{user}", dependencies=[Depends(require_admin_key)])
+async def resolve_user(user: str):
+    """Resolve a user by id or UPN/email. Exercises User.Read.All."""
+    try:
+        return await graph.get_user(user)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=str(exc))
+
+
+@router.get("/users/{user}/transcripts", dependencies=[Depends(require_admin_key)])
+async def user_transcripts(user: str):
+    """List all online-meeting transcripts organised by this user (getAllTranscripts)."""
+    try:
+        transcripts = await graph.list_transcripts_for_user(user)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=str(exc))
+    return {"count": len(transcripts), "transcripts": transcripts}
+
+
+@router.post("/transcript/fetch", dependencies=[Depends(require_admin_key)])
+async def fetch_transcript(body: TranscriptFetchIn):
+    """Fetch a transcript's WebVTT text from its transcriptContentUrl (or resource path)."""
+    try:
+        vtt_text = await graph.get_transcript_content(body.content_url)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=str(exc))
+    return {"length": len(vtt_text), "vtt": vtt_text}
 
 
 # ---------- Job status ----------

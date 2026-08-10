@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git rev-list *)",
+      "Bash(git checkout *)",
+      "Bash(git ls-tree *)",
+      "Bash(python -c \"import fastapi, httpx, azure.identity, pydantic; print\\('ok'\\)\")",
+      "Bash(python tests/fixtures/run_meeting_notes_tests.py)",
+      "Bash(PYTHONPATH=. python tests/fixtures/run_meeting_notes_tests.py)"
+    ]
+  }
+}

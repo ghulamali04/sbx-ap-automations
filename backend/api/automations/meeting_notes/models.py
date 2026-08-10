@@ -65,6 +65,13 @@ class NoteJobResult(BaseModel):
     error: str | None = None
 
 
+class TranscriptFetchIn(BaseModel):
+    # The transcriptContentUrl returned by getAllTranscripts (already ends in
+    # /content), or a transcript resource path. Body, not query string, so the
+    # long signed URL needs no encoding.
+    content_url: str
+
+
 class SubscriptionInfo(BaseModel):
     """Trimmed view of a Graph subscription for the admin/renewal endpoints."""
 

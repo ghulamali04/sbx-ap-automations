@@ -147,8 +147,15 @@ async def get_transcript_metadata(resource: str) -> dict:
 
 
 async def get_transcript_content(resource: str) -> str:
-    """Return the transcript body as WebVTT text (speaker-attributed)."""
-    url = f"{_normalise_resource(resource)}/content"
+    """Return the transcript body as WebVTT text (speaker-attributed).
+
+    Accepts either a bare transcript resource path (the notifications/
+    getAllTranscripts form, e.g. communications/onlineMeetings(...)/transcripts(...))
+    or a full transcriptContentUrl that already ends in /content — appending
+    /content unconditionally would double it up and Graph 400s on .../content/content.
+    """
+    base = _normalise_resource(resource).rstrip("/")
+    url = base if base.endswith("/content") else f"{base}/content"
     async with httpx.AsyncClient(timeout=60) as client:
         resp = await client.get(
             url,
