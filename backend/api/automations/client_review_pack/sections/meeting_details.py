@@ -26,7 +26,7 @@ class ActionItem(BaseModel):
 
 
 class MeetingDetailsData(BaseModel):
-    client_name: str
+    client_name: str = ""
     date: str | None = None
     time: str | None = None
     location: str | None = None
@@ -39,7 +39,8 @@ class MeetingDetailsData(BaseModel):
 def build_meeting_details_section(data: MeetingDetailsData) -> Section:
     section = Section(key="meeting_details", title="Meeting Notes", page_size=PORTRAIT_A4)
     width = section.usable_width
-    section.story += pb.masthead_block("Meeting Notes", meta=[f"<b>Client:</b> {data.client_name}"])
+    meta = [f"<b>Client:</b> {data.client_name}"] if data.client_name else None
+    section.story += pb.masthead_block("Meeting Notes", meta=meta)
 
     section.story.append(pb.section_heading("Meeting details"))
     detail_rows = [
