@@ -1,9 +1,10 @@
 """
 Live data-fetch adapters for `client_review_pack` sections.
 
-Each module here fetches from a source system already integrated elsewhere in
-this codebase and maps the result onto the matching section's Pydantic input
-model — it does not duplicate fetch/auth logic that automation already owns.
-Only sections with a genuine existing client get a module here; see each
-section's own docstring for whether live wiring exists yet.
+Every section has a `fetch_live_<name>(...)` here. Where a source system is
+already integrated elsewhere in this codebase (currently just Zoho, for
+`task_summary`), the module reuses that integration's fetch/auth logic rather
+than duplicating it. Everywhere else the module is a stub: the request/return
+shape is real, but it raises `NotImplementedError` — see each module's
+docstring for exactly which API client to add and where the call belongs.
 """

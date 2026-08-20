@@ -26,7 +26,11 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.pdfgen.canvas import Canvas
 from reportlab.platypus import (
+    BaseDocTemplate,
+    Frame,
+    NextPageTemplate,
     PageBreak,
+    PageTemplate,
     Paragraph,
     SimpleDocTemplate,
     Spacer,
@@ -381,3 +385,59 @@ def combine_sections(sections: list[Section], *, title: str = "Client Review Pac
             story.append(PageBreak())
         story.extend(section.story)
     return render_document(story, page_size=page_size, margin=sections[0].margin, title=title, footer_label=title)
+
+
+def combine_mixed_sections(sections: list[Section], *, title: str = "Client Review Pack") -> bytes:
+    """Concatenate sections of *any* page size/margin into one PDF.
+
+    Builds one named `PageTemplate` per distinct (page_size, margin) pair among
+    the sections, then switches to the right one before each section via a
+    `NextPageTemplate` flowable followed by a `PageBreak` — the standard
+    reportlab recipe for a document whose page geometry changes mid-flow (e.g.
+    portrait A4 narrative pages next to landscape A3 registers). This is the
+    general combiner `combine_sections` deferred; prefer this one unless every
+    section you're passing already shares one page size.
+    """
+    if not sections:
+        raise ValueError("combine_mixed_sections requires at least one section")
+
+    buf = io.BytesIO()
+    template_names: dict[tuple[tuple[float, float], float], str] = {}
+    templates: list[PageTemplate] = []
+    for section in sections:
+        key = (section.page_size, section.margin)
+        if key in template_names:
+            continue
+        name = f"tpl_{len(templates)}"
+        template_names[key] = name
+        w, h = section.page_size
+        frame = Frame(
+            section.margin, section.margin, w - 2 * section.margin, h - 2 * section.margin,
+            id=name, leftPadding=0, rightPadding=0, topPadding=0, bottomPadding=0,
+        )
+        templates.append(PageTemplate(
+            id=name, frames=[frame], pagesize=section.page_size,
+            onPage=_footer(section.page_size, section.margin, title),
+        ))
+
+    doc = BaseDocTemplate(
+        buf, pagesize=sections[0].page_size,
+        leftMargin=sections[0].margin, rightMargin=sections[0].margin,
+        topMargin=sections[0].margin, bottomMargin=sections[0].margin,
+        title=title,
+    )
+    doc.addPageTemplates(templates)
+
+    story: list = []
+    current_template: str | None = None
+    for i, section in enumerate(sections):
+        name = template_names[(section.page_size, section.margin)]
+        if name != current_template:
+            story.append(NextPageTemplate(name))
+            current_template = name
+        if i:
+            story.append(PageBreak())
+        story.extend(section.story)
+
+    doc.build(story)
+    return buf.getvalue()
