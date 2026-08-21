@@ -1,4 +1,4 @@
-
+ 
 from __future__ import annotations
 
 import asyncio
@@ -29,7 +29,7 @@ def validate_webhook_url(url: str) -> None:
         raise HTTPException(
             status_code=400,
             detail=f"webhook_url host '{parsed.netloc}' is not in POWER_AUTOMATE_ALLOWED_HOSTS.",
-        )
+        )  
 
 
 async def deliver_charts(
